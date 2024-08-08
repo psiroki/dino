@@ -11,6 +11,29 @@ const uint32_t DP_SHIFT = 17;
 const int JUMPS = 2;
 const int MAX_OBSTACLES = 16;
 
+struct PixelPtr {
+  uint32_t *pixel;
+  int32_t pixelPitch;
+
+  inline PixelPtr(SDL_Surface *s): pixel(static_cast<uint32_t*>(s->pixels)), pixelPitch(s->pitch >> 2) { }
+
+  inline void nextPixel() {
+    ++pixel;
+  }
+
+  inline void nextLine() {
+    pixel += pixelPitch;
+  }
+
+  inline uint32_t& operator *() {
+    return *pixel;
+  }
+
+  inline operator uint32_t*() {
+    return pixel;
+  }
+};
+
 struct Collider {
   int x, y;
   int w, h;
@@ -117,6 +140,7 @@ class DinoJump {
   SDL_Surface *vita;
   SDL_Surface *bg;
   SDL_Surface *shadow;
+  SDL_Surface *wideShadow;
   bool running;
 
   int frame;
@@ -178,7 +202,35 @@ void DinoJump::init() {
   dino.appearance.yOffset = -2;
   bg = IMG_Load("assets/bg.png");
   shadow = IMG_Load("assets/shadow.png");
+  const int widening = 2;
+  wideShadow = SDL_CreateRGBSurface(0, shadow->w * widening, shadow-> h, 32,
+      shadow->format->Rmask, shadow->format->Gmask, shadow->format->Bmask,
+      shadow->format->Amask);
+
+  SDL_LockSurface(shadow);
+  SDL_LockSurface(wideShadow);
+
+  PixelPtr sp(shadow);
+  PixelPtr wsp(wideShadow);
+
+  for (int y = 0; y < shadow->h; ++y) {
+    uint32_t *src = sp;
+    uint32_t *dst = wsp;
+    for (int x = 0; x < shadow->w; ++x) {
+      uint32_t p = *src++;
+      for (int i = 0; i < widening; ++i) {
+        *dst++ = p;
+      }
+    }
+    sp.nextLine();
+    wsp.nextLine();
+  }
+
+  SDL_UnlockSurface(shadow);
+  SDL_UnlockSurface(wideShadow);
+
   SDL_SetAlpha(shadow, SDL_SRCALPHA, 255);
+  SDL_SetAlpha(wideShadow, SDL_SRCALPHA, 255);
 }
 
 void DinoJump::run() {
@@ -244,7 +296,7 @@ void DinoJump::update() {
       if (!numObstacles || maxX < (640 << FP_SHIFT) - ((640 << FP_SHIFT) / expObstacles)) {
         bool duckable = random()&4;
         obstacles[numObstacles].reset(
-            (random(8*difficulty)+16) << FP_SHIFT,
+            (random(8*difficulty)+(duckable ? 64 : 16)) << FP_SHIFT,
             (random(32*difficulty)+16) << FP_SHIFT);
         if (duckable) {
           obstacles[numObstacles].collider.y -= dino.duckHeight() * 5 / 4;
@@ -293,13 +345,14 @@ void DinoJump::drawCollider(const Collider &c, const Appearance &appearance) {
   int centerY = c.y + cy;
   SDL_Surface *surface = appearance.surface;
   if (!surface) {
-    int w = shadow->w;
-    int h = shadow->h;
+    SDL_Surface *shadowToUse = (c.w >> DP_SHIFT) > shadow->w ? wideShadow : shadow;
+    int w = shadowToUse->w;
+    int h = shadowToUse->h;
     SDL_Rect shadowDst {
       .x = static_cast<Sint16>((centerX >> DP_SHIFT) - w / 2),
       .y = static_cast<Sint16>((cy >> DP_SHIFT) - h / 2),
     };
-    SDL_BlitSurface(shadow, nullptr, screen, &shadowDst);
+    SDL_BlitSurface(shadowToUse, nullptr, screen, &shadowDst);
 
     int x1 = (centerX - (c.w >> 1)) >> DP_SHIFT;
     int y1 = (centerY - (c.h >> 1)) >> DP_SHIFT;
