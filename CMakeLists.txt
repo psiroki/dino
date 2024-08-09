@@ -1,10 +1,11 @@
-cmake_minimum_required (VERSION 3.13)
+cmake_minimum_required (VERSION 3.8)
 
 project(DinoJump)
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
 
+option(BITTBOY "Build for BittBoy/PocketGo compatibility" OFF)
 option(MIYOO "Build for Miyoo Mini compatibility" OFF)
 option(RG35XX "Build for RG35XX compatibility" OFF)
 
@@ -12,8 +13,12 @@ message("Compiling for: ${CMAKE_SYSTEM_NAME}")
 
 if (NOT ${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
   find_package(SDL REQUIRED)
-  find_package(SDL_image REQUIRED)
   include_directories(${SDL_INCLUDE_DIR})
+endif()
+
+if(BITTBOY)
+    message(STATUS "BittBoy/PocketGo mode")
+    add_definitions(-DBITTBOY)
 endif()
 
 if(MIYOO)
@@ -24,6 +29,11 @@ endif()
 if(RG35XX)
     message(STATUS "RG35XX mode")
     add_definitions(-DRG35XX)
+endif()
+
+if(NOT RG35XX AND NOT MIYOO AND NOT BITTBOY)
+    message(STATUS "Desktop mode")
+    add_definitions(-DDESKTOP)
 endif()
 
 
@@ -63,7 +73,7 @@ if (NOT ${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
     add_executable(dino_jump_test ${tests})
     set_target_properties(dino_jump_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${tool_test_target_dir})
     target_compile_options(dino_jump_test PUBLIC "-g")
-    target_link_libraries(dino_jump_test ${SDL_LIBRARY} ${SDL_IMAGE_LIBRARY})
+    target_link_libraries(dino_jump_test ${SDL_LIBRARY})
   endif()
 endif()
 
@@ -73,7 +83,7 @@ if (NOT ${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
 
   set_target_properties(dino_jump PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${main_target_dir})
   target_compile_options(dino_jump PUBLIC "-g")
-  target_link_libraries(dino_jump ${SDL_LIBRARY} ${SDL_IMAGE_LIBRARY} pthread)
+  target_link_libraries(dino_jump ${SDL_LIBRARY} pthread)
 
 else()
   message("Assets: ${assets_dir}")

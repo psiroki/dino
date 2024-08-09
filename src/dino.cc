@@ -1,15 +1,21 @@
 #include <SDL/SDL.h>
-#include <SDL/SDL_image.h>
 
 #include "util.hh"
+#include "image.hh"
 
+#ifdef DESKTOP
 #define BLOWUP 2
+#endif
 
 const uint32_t FP_SHIFT = 16;
 const uint32_t DP_SHIFT = 17;
 
 const int JUMPS = 2;
 const int MAX_OBSTACLES = 16;
+
+inline int max(int a, int b) {
+  return a > b ? a : b;
+}
 
 struct PixelPtr {
   uint32_t *pixel;
@@ -77,14 +83,22 @@ struct DynamicCollider: public Collider {
 };
 
 struct Appearance {
+  static const int SHADOW = 1;
+  static const int COVER6 = 2;
+
   uint32_t color;
   SDL_Surface *surface;
   int frameWidth;
-  int frame;
+  int frameHeight;
+  int frameX;
+  int frameY;
   int xOffset;
   int yOffset;
+  int coverWidth;
+  int coverHeight;
+  int flags;
 
-  Appearance(): surface(nullptr), xOffset(0), yOffset(0) { }
+  Appearance(): surface(nullptr), frameWidth(0), frameHeight(0), xOffset(0), yOffset(0), flags(SHADOW) { }
 };
 
 struct Dino {
@@ -141,6 +155,8 @@ class DinoJump {
   SDL_Surface *bg;
   SDL_Surface *shadow;
   SDL_Surface *wideShadow;
+  SDL_Surface *blimp;
+  SDL_Surface *building;
   bool running;
 
   int frame;
@@ -193,15 +209,17 @@ void DinoJump::init() {
   screen = SDL_SetVideoMode(320, 240, 32, 0);
 #endif
   SDL_WM_SetCaption("Dino Jump", nullptr);
+  SDL_ShowCursor(false);
   dino.appearance.color = randomBrightColor();
-  IMG_Init(IMG_INIT_PNG);
-  vita = IMG_Load("assets/vita.png");
+  vita = loadPNG("assets/vita.png");
   dino.appearance.surface = vita;
   dino.appearance.frameWidth = 24;
-  dino.appearance.frame = 4;
-  dino.appearance.yOffset = -2;
-  bg = IMG_Load("assets/bg.png");
-  shadow = IMG_Load("assets/shadow.png");
+  dino.appearance.frameX = 4;
+  dino.appearance.yOffset = 3;
+  bg = loadPNG("assets/bg.png");
+  blimp = loadPNG("assets/blimp.png");
+  building = loadPNG("assets/building.png");
+  shadow = loadPNG("assets/shadow.png");
   const int widening = 2;
   wideShadow = SDL_CreateRGBSurface(0, shadow->w * widening, shadow-> h, 32,
       shadow->format->Rmask, shadow->format->Gmask, shadow->format->Bmask,
@@ -275,6 +293,8 @@ void DinoJump::handleKeyEvent(const SDL_Event &event) {
       dino.collider.lastY = dino.collider.y + (12 << FP_SHIFT);
       --jumpsLeft;
     }
+    if (key == SDLK_t) ++difficulty;
+    if (key == SDLK_e && difficulty > 1) --difficulty;
   }
   if (key == SDLK_DOWN || key == SDLK_LCTRL) {
     duck = event.type == SDL_KEYDOWN;
@@ -284,6 +304,8 @@ void DinoJump::handleKeyEvent(const SDL_Event &event) {
 void DinoJump::update() {
   if (activity == Activity::playing) {
     dino.duckEnabled(duck);
+    if (duck && dino.collider.y < 0)
+      dino.collider.lastY = dino.collider.y - (12 << FP_SHIFT);
     dino.collider.update();
     if (dino.collider.grounded) jumpsLeft = JUMPS;
     int expObstacles = difficulty / 3 + 1;
@@ -295,13 +317,30 @@ void DinoJump::update() {
       }
       if (!numObstacles || maxX < (640 << FP_SHIFT) - ((640 << FP_SHIFT) / expObstacles)) {
         bool duckable = random()&4;
-        obstacles[numObstacles].reset(
-            (random(8*difficulty)+(duckable ? 64 : 16)) << FP_SHIFT,
-            (random(32*difficulty)+16) << FP_SHIFT);
+        Obstacle &obstacle(obstacles[numObstacles]);
+        Appearance &appearance(obstacle.appearance);
+        obstacle.reset(
+            (duckable ? 72 : random(2*difficulty)*16+16) << FP_SHIFT,
+            (duckable ? 48 : random(2*difficulty)*16+16) << FP_SHIFT);
         if (duckable) {
-          obstacles[numObstacles].collider.y -= dino.duckHeight() * 5 / 4;
+          obstacle.collider.y -= dino.duckHeight() * 5 / 4;
+          appearance.surface = blimp;
+          appearance.frameWidth = 0;
+          appearance.frameHeight = 0;
+          appearance.yOffset = -2;
+          appearance.flags &= ~Appearance::COVER6;
+        } else {
+          appearance.surface = building;
+          appearance.frameWidth = 12;
+          appearance.frameHeight = 12;
+          appearance.frameX = 0;
+          appearance.frameY = 0;
+          appearance.flags |= Appearance::COVER6;
+          appearance.coverWidth = max(3, (obstacle.collider.w+(24 << DP_SHIFT)) / 12 >> DP_SHIFT);
+          appearance.coverHeight = max(2, (obstacle.collider.h+(12 << DP_SHIFT)) / 12 >> DP_SHIFT);
+          appearance.yOffset = 0;
         }
-        obstacles[numObstacles].appearance.color = randomBrightColor();
+        appearance.color = randomBrightColor();
         ++numObstacles;
       }
     }
@@ -329,9 +368,9 @@ void DinoJump::update() {
         stopEnd.resetWithDelta(0.5f);
       }
     }
-    dino.appearance.frame = (duck ? 17 : 4) + (frame % 24 >> 2);
+    dino.appearance.frameX = (duck ? 17 : 4) + (frame % 24 >> 2);
   } else if (activity == Activity::stopping) {
-    dino.appearance.frame = 13 + (frame % 6 >> 1);
+    dino.appearance.frameX = 13 + (frame % 6 >> 1);
     if (stopEnd.elapsedSeconds() > 0.0f) {
       activity = Activity::playing;
       numObstacles = 0;
@@ -344,7 +383,7 @@ void DinoJump::drawCollider(const Collider &c, const Appearance &appearance) {
   int centerX = c.x + cx;
   int centerY = c.y + cy;
   SDL_Surface *surface = appearance.surface;
-  if (!surface) {
+  if (appearance.flags & Appearance::SHADOW) {
     SDL_Surface *shadowToUse = (c.w >> DP_SHIFT) > shadow->w ? wideShadow : shadow;
     int w = shadowToUse->w;
     int h = shadowToUse->h;
@@ -353,7 +392,8 @@ void DinoJump::drawCollider(const Collider &c, const Appearance &appearance) {
       .y = static_cast<Sint16>((cy >> DP_SHIFT) - h / 2),
     };
     SDL_BlitSurface(shadowToUse, nullptr, screen, &shadowDst);
-
+  }
+  if (!surface) {
     int x1 = (centerX - (c.w >> 1)) >> DP_SHIFT;
     int y1 = (centerY - (c.h >> 1)) >> DP_SHIFT;
     int x2 = (centerX + (c.w >> 1)) >> DP_SHIFT;
@@ -366,21 +406,48 @@ void DinoJump::drawCollider(const Collider &c, const Appearance &appearance) {
     };
     SDL_FillRect(screen, &r, appearance.color);
   } else {
-    int w = appearance.frameWidth;
-    int h = surface->h;
-    SDL_Rect dst {
-      .x = static_cast<Sint16>((centerX >> DP_SHIFT) - w / 2 + appearance.xOffset),
-      .y = static_cast<Sint16>((centerY >> DP_SHIFT) - h / 2 + appearance.yOffset),
-      .w = static_cast<Uint16>(w),
-      .h = static_cast<Uint16>(h),
-    };
-    SDL_Rect src {
-      .x = static_cast<Sint16>(appearance.frame * appearance.frameWidth),
-      .y = static_cast<Sint16>(0),
-      .w = static_cast<Uint16>(w),
-      .h = static_cast<Uint16>(h),
-    };
-    SDL_BlitSurface(surface, &src, screen, &dst);
+    int fw = appearance.frameWidth;
+    int fh = appearance.frameHeight;
+    int fx = fw ? appearance.frameX : 0;
+    int fy = fh ? appearance.frameY : 0;
+    int w = fw ? fw : surface->w;
+    int h = fh ? fh : surface->h;
+    int cw = 1;
+    int ch = 1;
+    int vw = w;
+    int vh = h;
+    if (appearance.flags & Appearance::COVER6) {
+      cw = appearance.coverWidth;
+      ch = appearance.coverHeight;
+      vw *= cw;
+      vh *= ch;
+    }
+    int bx = (centerX >> DP_SHIFT) - vw / 2 + appearance.xOffset;
+    int by = (centerY + c.h / 2 >> DP_SHIFT) - vh + appearance.yOffset;
+    for (int y = 0; y < ch; ++y) {
+      int bs = bx;
+      for (int x = 0; x < cw; ++x) {
+        SDL_Rect dst {
+          .x = static_cast<Sint16>(bx),
+          .y = static_cast<Sint16>(by),
+          .w = static_cast<Uint16>(w),
+          .h = static_cast<Uint16>(h),
+        };
+        SDL_Rect src {
+          .x = static_cast<Sint16>(fx * fw),
+          .y = static_cast<Sint16>(fy * fh),
+          .w = static_cast<Uint16>(w),
+          .h = static_cast<Uint16>(h),
+        };
+        SDL_BlitSurface(surface, &src, screen, &dst);
+        bx += w;
+        fx = x >= cw - 2 ? 2 : 1;
+      }
+      bx = bs;
+      by += h;
+      if (!y) ++fy;
+      fx = 0;
+    }
   }
 }
 
