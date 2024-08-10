@@ -1,10 +1,23 @@
 #include <SDL/SDL.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include "util.hh"
 #include "image.hh"
 
+#ifdef __EMSCRIPTEN__
+// no blowup
+#else
 #ifdef DESKTOP
 #define BLOWUP 2
+#endif
+#endif
+
+#ifdef MIYOO
+#define BLOWUP 1
+#define FLIP
 #endif
 
 const uint32_t FP_SHIFT = 16;
@@ -195,18 +208,20 @@ public:
   }
   void init();
   void run();
+  void loop();
 };
 
 void DinoJump::init() {
   if (screen) return;
   SDL_Init(SDL_INIT_VIDEO);
+  uint32_t flags = 0;
 #if BLOWUP
   realScreen = SDL_SetVideoMode(320 << BLOWUP, 240 << BLOWUP, 32, 0);
   screen = SDL_CreateRGBSurface(0, 320, 240, 32,
       realScreen->format->Rmask, realScreen->format->Gmask, realScreen->format->Bmask,
       realScreen->format->Amask);
 #else
-  screen = SDL_SetVideoMode(320, 240, 32, 0);
+  screen = SDL_SetVideoMode(320, 240, 32, flags);
 #endif
   SDL_WM_SetCaption("Dino Jump", nullptr);
   SDL_ShowCursor(false);
@@ -251,31 +266,35 @@ void DinoJump::init() {
   SDL_SetAlpha(wideShadow, SDL_SRCALPHA, 255);
 }
 
+void DinoJump::loop() {
+  SDL_Event event;
+  while (SDL_PollEvent(&event)) {
+    switch (event.type) {
+      case SDL_QUIT:
+        running = false;
+        break;
+      case SDL_KEYDOWN:
+      case SDL_KEYUP:
+        handleKeyEvent(event);
+        break;
+      default:
+        break;
+    }
+  }
+
+  update();
+
+  render();
+}
+
 void DinoJump::run() {
   running = true;
-  SDL_Event event;
 
   while (running) {
     Stopwatch frameStart;
 
-    // Event handling
-    while (SDL_PollEvent(&event)) {
-      switch (event.type) {
-        case SDL_QUIT:
-          running = false;
-          break;
-        case SDL_KEYDOWN:
-        case SDL_KEYUP:
-          handleKeyEvent(event);
-          break;
-        default:
-          break;
-      }
-    }
+    loop();
 
-    update();
-
-    render();
     int32_t msLeft = 1000/60 - frameStart.elapsedSeconds()*1000.0f;
     if (msLeft > 0)
       SDL_Delay(msLeft);
@@ -293,8 +312,8 @@ void DinoJump::handleKeyEvent(const SDL_Event &event) {
       dino.collider.lastY = dino.collider.y + (12 << FP_SHIFT);
       --jumpsLeft;
     }
-    if (key == SDLK_t) ++difficulty;
-    if (key == SDLK_e && difficulty > 1) --difficulty;
+    if (key == SDLK_t || key == SDLK_BACKSPACE) ++difficulty;
+    if ((key == SDLK_e || key == SDLK_TAB) && difficulty > 1) --difficulty;
   }
   if (key == SDLK_DOWN || key == SDLK_LCTRL) {
     duck = event.type == SDL_KEYDOWN;
@@ -466,11 +485,25 @@ void DinoJump::render() {
   int32_t spp = screen->pitch >> 2;
   uint32_t *tp = static_cast<uint32_t*>(realScreen->pixels);
   int32_t tpp = realScreen->pitch >> 2;
+
+#ifdef FLIP
+  uint32_t sw = screen->w;
+  uint32_t sh = screen->h;
+#endif
+
   for (int y = 0; y < realScreen->h; ++y) {
     uint32_t *target = tp;
+#ifdef FLIP
+    uint32_t *source = sp + (sh - (y >> BLOWUP) - 1) * spp;
+#else
     uint32_t *source = sp + (y >> BLOWUP) * spp;
+#endif
     for (int x = 0; x < realScreen->w; ++x) {
+#ifdef FLIP
+      *target++ = source[sw - (x >> BLOWUP) - 1];
+#else
       *target++ = source[x >> BLOWUP];
+#endif
     }
     tp += tpp;
   }
@@ -482,8 +515,21 @@ void DinoJump::render() {
 #endif
 }
 
+DinoJump app;
+
+void mainLoop() {
+  app.loop();
+}
+
 int main() {
-  DinoJump app;
   app.init();
+
+#ifdef __EMSCRIPTEN__
+  emscripten_set_main_loop(mainLoop, 0, 1);
+#endif
+
+#ifndef __EMSCRIPTEN__
   app.run();
+#endif
+  return 0;
 }
