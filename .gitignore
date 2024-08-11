@@ -4,3 +4,5 @@
 
 build*
 reset*.bin
+
+platform/platforms.txt
