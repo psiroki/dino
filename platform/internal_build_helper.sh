@@ -13,8 +13,8 @@ echo Running with $2
 PS1=anything_but_empty_string
 . /etc/bash.bashrc
 
-cd "$(dirname "$0")"
-cd ../$1
+PROJECT_ROOT="$(dirname "$0")/.."
+cd $PROJECT_ROOT/$1
 
-cmake .. "-D$2=ON"
+cmake $PROJECT_ROOT "-D$2=ON"
 make
