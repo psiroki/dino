@@ -1,4 +1,5 @@
 #include <SDL/SDL.h>
+#include <iostream>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -28,6 +29,122 @@ const int MAX_OBSTACLES = 16;
 
 inline int max(int a, int b) {
   return a > b ? a : b;
+}
+
+typedef int (*MonoSampleGenerator)(uint32_t sampleIndex);
+
+struct SoundBuffer {
+  uint32_t *samples;
+  uint32_t numSamples;
+
+  inline SoundBuffer(): samples(0), numSamples(0) { }
+  ~SoundBuffer();
+
+  void resize(uint32_t newNumSamples);
+  void generateMono(uint32_t newNumSamples, MonoSampleGenerator gen);
+};
+
+SoundBuffer::~SoundBuffer() {
+  if (samples) delete[] samples;
+}
+
+void SoundBuffer::resize(uint32_t newNumSamples) {
+  if (newNumSamples != numSamples) {
+    if (samples) delete[] samples;
+    numSamples = newNumSamples;
+    samples = numSamples ? new uint32_t[newNumSamples] : nullptr;
+  }
+}
+
+void SoundBuffer::generateMono(uint32_t newNumSamples, MonoSampleGenerator gen) {
+  resize(newNumSamples);
+  for (uint32_t i = 0; i < numSamples; ++i) {
+    int s = gen(i) & 0xFFFF;
+    samples[i] = (s << 16) | s;
+  }
+}
+
+struct MixChannel {
+  const SoundBuffer *buffer;
+  uint64_t timeStart;
+
+  bool isOver(uint64_t audioTime) {
+    return !buffer || timeStart < audioTime && (timeStart + buffer->numSamples) < audioTime;
+  }
+};
+
+class Mixer {
+  static const int maxNumChannels = 16;
+  static const int soundQueueSize = 16;
+
+  uint64_t audioTime[4];
+  Stopwatch times[4];
+  MixChannel soundsToAdd[soundQueueSize];
+  int soundRead;
+  int soundWrite;
+  MixChannel channels[maxNumChannels];
+  int numChannelsUsed;
+  int currentStopwatch;
+public:
+  inline Mixer(): audioTime { 0, 0, 0, 0 }, currentStopwatch(0), soundRead(0), soundWrite(0) { }
+  void audioCallback(uint8_t *stream, int len);
+  void playSound(const SoundBuffer *buffer);
+};
+
+void Mixer::audioCallback(uint8_t *stream, int len) {
+  uint64_t time = audioTime[currentStopwatch];
+  int numSamples = len / 4;
+
+  int nextWatch = (currentStopwatch + 1) & 3;
+  times[nextWatch].reset();
+  audioTime[nextWatch] = time + numSamples;
+  currentStopwatch = nextWatch;
+
+  // remove finished channels
+  for (int i = numChannelsUsed - 1; i >= 0; --i) {
+    if (channels[i].isOver(time)) {
+      if (i < numChannelsUsed - 1) {
+        // swap with last
+        channels[i] = channels[numChannelsUsed - 1];
+      }
+      --numChannelsUsed;
+    }
+  }
+  // add new channels
+  while (soundRead != soundWrite) {
+    channels[numChannelsUsed++] = soundsToAdd[soundRead];
+    soundRead = (soundRead + 1) & (soundQueueSize - 1);
+  }
+
+  uint32_t *s = reinterpret_cast<uint32_t*>(stream);
+  for (int i = 0; i < numSamples; ++i) {
+    int mix[2] { 0, 0 };
+    for (int j = 0; j < numChannelsUsed; ++j) {
+      MixChannel &ch(channels[j]);
+      uint64_t start = ch.timeStart;
+      if (start <= time && !ch.isOver(time)) {
+        uint32_t sampleIndex = time - start;
+        uint32_t sample = ch.buffer->samples[sampleIndex];
+        for (int k = 0; k < 2; ++k) {
+          mix[k] += static_cast<int16_t>(sample >> (k * 16));
+        }
+      }
+    }
+    for (int k = 0; k < 2; ++k) {
+      if (mix[k] > 32767) mix[k] = 32767;
+      if (mix[k] < -32768) mix[k] = -32768 & 0xffff;
+    }
+    *s++ = (mix[1] << 16) | mix[0];
+    ++time;
+  }
+}
+
+void Mixer::playSound(const SoundBuffer *buffer) {
+  MixChannel &ch(soundsToAdd[soundWrite]);
+  ch.buffer = buffer;
+  int w = currentStopwatch;
+  ch.timeStart = audioTime[w] + times[w].elapsedSeconds() * 44100;
+  soundWrite = (soundWrite + 1) & (soundQueueSize - 1);
 }
 
 struct PixelPtr {
@@ -159,7 +276,10 @@ void Obstacle::reset(int width, int height) {
 
 enum class Activity { playing, stopping };
 
+void callAudioCallback(void *userdata, uint8_t *stream, int len);
+
 class DinoJump {
+  friend void callAudioCallback(void *userdata, uint8_t *stream, int len);
 #if BLOWUP
   SDL_Surface *realScreen;
 #endif
@@ -170,6 +290,11 @@ class DinoJump {
   SDL_Surface *wideShadow;
   SDL_Surface *blimp;
   SDL_Surface *building;
+
+  SoundBuffer jump;
+  SoundBuffer step;
+  Mixer mixer;
+
   bool running;
 
   int frame;
@@ -191,6 +316,7 @@ class DinoJump {
   inline uint32_t randomBrightColor() {
     return SDL_MapRGB(screen->format, random() & 255 | 128, random() & 255 | 128, random() & 255 | 128);
   }
+  void audioCallback(uint8_t *stream, int len);
 public:
   inline DinoJump():
       screen(nullptr),
@@ -213,7 +339,33 @@ public:
 
 void DinoJump::init() {
   if (screen) return;
-  SDL_Init(SDL_INIT_VIDEO);
+
+  jump.generateMono(10000, [](uint32_t index) -> int {
+    int i2 = index * index / 1000 & 127;
+    int32_t s = abs(i2 - 64) - 32;
+    if (s < -24) s = -24;
+    if (s > 24) s = 24;
+    int vol = 10000 - index;
+    return s * vol / 10;
+  });
+
+  step.generateMono(600, [](uint32_t index) -> int {
+    int angle = index % 600;
+    int32_t s = angle < 300 ? -16 : 16;
+    int vol = 10000 - index;
+    return s * vol >> 6;
+  });
+
+  SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
+  SDL_AudioSpec desired;
+  desired.freq = 44100;
+  desired.format = AUDIO_S16LSB;
+  desired.channels = 2;
+  desired.samples = 4096;
+  desired.userdata = this;
+  desired.callback = callAudioCallback;
+  SDL_OpenAudio(&desired, nullptr);
+  SDL_PauseAudio(0);
   uint32_t flags = 0;
 #if BLOWUP
   realScreen = SDL_SetVideoMode(320 << BLOWUP, 240 << BLOWUP, 32, 0);
@@ -304,6 +456,10 @@ void DinoJump::run() {
   SDL_Quit();
 }
 
+void callAudioCallback(void *userData, uint8_t *stream, int len) {
+  static_cast<DinoJump*>(userData)->mixer.audioCallback(stream, len);
+}
+
 void DinoJump::handleKeyEvent(const SDL_Event &event) {
   SDLKey key = event.key.keysym.sym;
   if (event.type == SDL_KEYDOWN) {
@@ -311,6 +467,7 @@ void DinoJump::handleKeyEvent(const SDL_Event &event) {
     if ((key == SDLK_SPACE || key == SDLK_UP) && !duck && jumpsLeft > 0) {
       dino.collider.lastY = dino.collider.y + (12 << FP_SHIFT);
       --jumpsLeft;
+      mixer.playSound(&jump);
     }
     if (key == SDLK_t || key == SDLK_BACKSPACE) ++difficulty;
     if ((key == SDLK_e || key == SDLK_TAB) && difficulty > 1) --difficulty;
@@ -387,7 +544,9 @@ void DinoJump::update() {
         stopEnd.resetWithDelta(0.5f);
       }
     }
-    dino.appearance.frameX = (duck ? 17 : 4) + (frame % 24 >> 2);
+    int stepFrame = (frame % 24 >> 2);
+    dino.appearance.frameX = (duck ? 17 : 4) + stepFrame;
+    if (stepFrame % 3 == 0 && (dino.collider.y+dino.collider.h/2) > (-1 << FP_SHIFT)) mixer.playSound(&step);
   } else if (activity == Activity::stopping) {
     dino.appearance.frameX = 13 + (frame % 6 >> 1);
     if (stopEnd.elapsedSeconds() > 0.0f) {
