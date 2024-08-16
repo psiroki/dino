@@ -286,6 +286,7 @@ class DinoJump {
   SDL_Surface *screen;
   SDL_Surface *vita;
   SDL_Surface *bg;
+  SDL_Surface *ground;
   SDL_Surface *shadow;
   SDL_Surface *wideShadow;
   SDL_Surface *blimp;
@@ -298,6 +299,8 @@ class DinoJump {
   bool running;
 
   int frame;
+  int lastStepFrame;
+  int backgroundOffset;
   Random random;
   Dino dino;
   int cx, cy;
@@ -310,6 +313,7 @@ class DinoJump {
   Stopwatch stopEnd;
 
   void drawCollider(const Collider &c, const Appearance &appearance);
+  void drawGround();
   void render();
   void update();
   void handleKeyEvent(const SDL_Event &event);
@@ -353,7 +357,7 @@ void DinoJump::init() {
     int angle = index % 600;
     int32_t s = angle < 300 ? -16 : 16;
     int vol = 10000 - index;
-    return s * vol >> 6;
+    return s * vol >> 4;
   });
 
   SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
@@ -383,7 +387,8 @@ void DinoJump::init() {
   dino.appearance.frameWidth = 24;
   dino.appearance.frameX = 4;
   dino.appearance.yOffset = 3;
-  bg = loadPNG("assets/bg.png");
+  bg = loadPNG("assets/sky.png");
+  ground = loadPNG("assets/ground.png");
   blimp = loadPNG("assets/blimp.png");
   building = loadPNG("assets/building.png");
   shadow = loadPNG("assets/shadow.png");
@@ -391,6 +396,8 @@ void DinoJump::init() {
   wideShadow = SDL_CreateRGBSurface(0, shadow->w * widening, shadow-> h, 32,
       shadow->format->Rmask, shadow->format->Gmask, shadow->format->Bmask,
       shadow->format->Amask);
+
+  cy = (screen->h - ground->h + 1) << DP_SHIFT;
 
   SDL_LockSurface(shadow);
   SDL_LockSurface(wideShadow);
@@ -521,9 +528,13 @@ void DinoJump::update() {
       }
     }
 
+    const int speed = difficulty + 4;
+
     for (int i = 0; i < numObstacles; ++i) {
-      obstacles[i].collider.x -= 5 << FP_SHIFT;
+      obstacles[i].collider.x -= speed << FP_SHIFT;
     }
+
+    backgroundOffset -= speed << FP_SHIFT;
     
     for (int i = 0; i < numObstacles; ++i) {
       const Collider &c(obstacles[i].collider);
@@ -546,7 +557,11 @@ void DinoJump::update() {
     }
     int stepFrame = (frame % 24 >> 2);
     dino.appearance.frameX = (duck ? 17 : 4) + stepFrame;
-    if (stepFrame % 3 == 0 && (dino.collider.y+dino.collider.h/2) > (-1 << FP_SHIFT)) mixer.playSound(&step);
+    if (lastStepFrame != stepFrame && stepFrame % 3 == 0 &&
+        (dino.collider.y+dino.collider.h/2) > (-1 << FP_SHIFT)) {
+      mixer.playSound(&step);
+    }
+    lastStepFrame = stepFrame;
   } else if (activity == Activity::stopping) {
     dino.appearance.frameX = 13 + (frame % 6 >> 1);
     if (stopEnd.elapsedSeconds() > 0.0f) {
@@ -629,9 +644,23 @@ void DinoJump::drawCollider(const Collider &c, const Appearance &appearance) {
   }
 }
 
+void DinoJump::drawGround() {
+  backgroundOffset %= ground->w << DP_SHIFT;
+  if (backgroundOffset < 0) backgroundOffset += ground->w << DP_SHIFT;
+  int pixelOffset = backgroundOffset >> DP_SHIFT;
+  if (pixelOffset < screen->w) {
+    SDL_Rect dstRect { .x = static_cast<Sint16>(pixelOffset), .y = static_cast<Sint16>(screen->h - ground->h) };
+    SDL_BlitSurface(ground, nullptr, screen, &dstRect);
+  }
+  if (pixelOffset > 0) {
+    SDL_Rect dstRect { .x = static_cast<Sint16>(pixelOffset-ground->w), .y = static_cast<Sint16>(screen->h - ground->h) };
+    SDL_BlitSurface(ground, nullptr, screen, &dstRect);
+  }
+}
 
 void DinoJump::render() {
   SDL_BlitSurface(bg, nullptr, screen, nullptr);
+  drawGround();
   for (int i = 0; i < numObstacles; ++i) {
     const Obstacle *o = obstacles + i;
     drawCollider(o->collider, o->appearance);
