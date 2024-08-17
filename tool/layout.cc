@@ -80,11 +80,10 @@ KeyDef rg35xxLayout[] = {
   // button 16 is the menu short release button or something
 };
 
-// up, down, left, right, north, east, south, west,
-// r1, l1, r2, l2, start, select, menu
+// RG35XX 2022 GarlicOS layout (the triggers are probably joystick axes, I didn't bother with them, mapped 10 and 4)
 KeyDef rg35xx22Layout[] = {
-  BUTTON(13), BUTTON(14), BUTTON(15), BUTTON(16), BUTTON(2), BUTTON(0), BUTTON(1), BUTTON(3),
-  BUTTON(5), BUTTON(4), BUTTON(7), BUTTON(6), BUTTON(9), BUTTON(8), BUTTON(10),
+  HAT(SDL_HAT_UP), HAT(SDL_HAT_DOWN), HAT(SDL_HAT_LEFT), HAT(SDL_HAT_RIGHT), BUTTON(2), BUTTON(0), BUTTON(1), BUTTON(3),
+  BUTTON(6), BUTTON(5), BUTTON(10), BUTTON(4), BUTTON(8), BUTTON(7), BUTTON(9),
 };
 
 const InputLayout layouts[] = {

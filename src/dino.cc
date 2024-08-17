@@ -9,6 +9,7 @@
 #include "util.hh"
 #include "image.hh"
 #include "input.hh"
+#include "perftext.hh"
 
 #ifdef __EMSCRIPTEN__
 // no blowup
@@ -325,6 +326,8 @@ class DinoJump {
   SDL_Surface *blimp;
   SDL_Surface *building;
 
+  PerfTextOverlay overlay;
+
   SoundBuffer jump;
   SoundBuffer step;
   Mixer mixer;
@@ -375,7 +378,8 @@ public:
       jumpsLeft(JUMPS),
       duck(false),
       numObstacles(0),
-      difficulty(1) {
+      difficulty(1),
+      overlay(320, 240, 0) {
   }
   void init();
   void run();
@@ -770,6 +774,7 @@ void DinoJump::render() {
     drawCollider(o->collider, o->appearance);
   }
   drawCollider(dino.collider, dino.appearance);
+  overlay.drawOverlay(screen);
 #if BLOWUP
   SDL_LockSurface(realScreen);
   SDL_LockSurface(screen);
