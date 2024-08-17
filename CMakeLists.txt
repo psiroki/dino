@@ -1,13 +1,14 @@
 cmake_minimum_required (VERSION 3.8)
 
 project(DinoJump)
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
 
 option(BITTBOY "Build for BittBoy/PocketGo compatibility" OFF)
 option(MIYOO "Build for Miyoo Mini compatibility" OFF)
 option(RG35XX "Build for RG35XX compatibility" OFF)
+option(RG35XX22 "Build for RG35XX22 compatibility" OFF)
 option(WEB "Build for web (Emscripten)" OFF)
 
 message("Compiling for: ${CMAKE_SYSTEM_NAME}")
@@ -30,6 +31,11 @@ endif()
 if(RG35XX)
   message(STATUS "RG35XX mode")
   add_definitions(-DRG35XX)
+endif()
+
+if(RG35XX22)
+  message(STATUS "RG35XX22 mode")
+  add_definitions(-DRG35XX -DRG35XX22)
 endif()
 
 if(NOT RG35XX AND NOT MIYOO AND NOT BITTBOY)
@@ -76,8 +82,13 @@ if (NOT ${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
 
     add_executable(dino_jump_test ${tests})
     set_target_properties(dino_jump_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${tool_test_target_dir})
-    target_compile_options(dino_jump_test PUBLIC "-g")
+    target_compile_options(dino_jump_test PUBLIC "-g" "-DTEST")
     target_link_libraries(dino_jump_test ${SDL_LIBRARY})
+
+    add_executable(gentool ${tools})
+    set_target_properties(gentool PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${tool_test_target_dir})
+    target_compile_options(gentool PUBLIC "-O3" "-DTEST")
+    target_link_libraries(gentool ${SDL_LIBRARY})
   endif()
 endif()
 

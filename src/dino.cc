@@ -1,5 +1,6 @@
 #include <SDL/SDL.h>
 #include <iostream>
+#include <fstream>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -7,6 +8,7 @@
 
 #include "util.hh"
 #include "image.hh"
+#include "input.hh"
 
 #ifdef __EMSCRIPTEN__
 // no blowup
@@ -20,6 +22,25 @@
 #define BLOWUP 1
 #define FLIP
 #endif
+
+#ifdef RG35XX
+#define BLOWUP 1
+#endif
+
+#if defined(DESKTOP)
+static const char * const LAYOUT_FILE = "PC";
+#elif defined(MIYOO)
+static const char * const LAYOUT_FILE = "MiyooMini";
+#elif defined(BITTBOY)
+static const char * const LAYOUT_FILE = "Bittboy";
+#elif defined(RG35XX22)
+static const char * const LAYOUT_FILE = "RG35XX22";
+#elif defined(RG35XX)
+static const char * const LAYOUT_FILE = "RG35XX";
+#else
+static const char * const LAYOUT_FILE = nullptr;
+#endif
+
 
 const uint32_t FP_SHIFT = 16;
 const uint32_t DP_SHIFT = 17;
@@ -278,6 +299,18 @@ enum class Activity { playing, stopping };
 
 void callAudioCallback(void *userdata, uint8_t *stream, int len);
 
+struct ControlState {
+  bool controlState[static_cast<int>(Control::LAST_ITEM)];
+
+  inline bool& operator [](int index) {
+    return controlState[index];
+  }
+
+  inline bool& operator [](Control control) {
+    return controlState[static_cast<int>(control)];
+  }
+};
+
 class DinoJump {
   friend void callAudioCallback(void *userdata, uint8_t *stream, int len);
 #if BLOWUP
@@ -303,6 +336,10 @@ class DinoJump {
   int backgroundOffset;
   Random random;
   Dino dino;
+  int32_t lastHatBits;
+  ControlState controlState;
+  InputMapping inputLayout;
+  char inputLayoutBytes[1024];
   int cx, cy;
   int jumpsLeft;
   bool duck;
@@ -317,6 +354,9 @@ class DinoJump {
   void render();
   void update();
   void handleKeyEvent(const SDL_Event &event);
+  void handleJoyHat(int32_t hatBits);
+  void handleJoyButton(uint8_t button, uint8_t value);
+  void handleControlEvent(Control control, bool down);
   inline uint32_t randomBrightColor() {
     return SDL_MapRGB(screen->format, random() & 255 | 128, random() & 255 | 128, random() & 255 | 128);
   }
@@ -327,6 +367,7 @@ public:
       running(false),
       frame(0),
 
+      lastHatBits(0),
       activity(Activity::playing),
       random(micros()),
       cx(160 << FP_SHIFT),
@@ -344,6 +385,25 @@ public:
 void DinoJump::init() {
   if (screen) return;
 
+  memset(&controlState, 0, sizeof(controlState));
+  if (LAYOUT_FILE) {
+    char path[256];
+    snprintf(path, sizeof(path), "assets/%s.layout", LAYOUT_FILE);
+    std::cerr << "Using " << path << " for input layout" << std::endl;
+    std::ifstream file(path, std::ios::binary);
+    if (file.is_open()) {
+      file.read(inputLayoutBytes, sizeof(inputLayoutBytes));
+
+      if (file.gcount() >= sizeof(inputLayoutBytes)) {
+          std::cerr << "Layout file is too big" << std::endl;
+      }
+      file.close();
+    } else {
+      std::cerr << "Could not load layout file" << std::endl;
+    }
+    inputLayout.setTable(inputLayoutBytes);
+  }
+
   jump.generateMono(10000, [](uint32_t index) -> int {
     int i2 = index * index / 1000 & 127;
     int32_t s = abs(i2 - 64) - 32;
@@ -360,7 +420,12 @@ void DinoJump::init() {
     return s * vol >> 4;
   });
 
-  SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
+  SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK);
+
+  if (SDL_NumJoysticks() > 0) {
+    SDL_JoystickOpen(0);
+  }
+
   SDL_AudioSpec desired;
   desired.freq = 44100;
   desired.format = AUDIO_S16LSB;
@@ -377,7 +442,12 @@ void DinoJump::init() {
       realScreen->format->Rmask, realScreen->format->Gmask, realScreen->format->Bmask,
       realScreen->format->Amask);
 #else
-  screen = SDL_SetVideoMode(320, 240, 32, flags);
+#ifdef __EMSCRIPTEN__
+  uint32_t additionalFlags = 0;
+#else
+  uint32_t additionalFlags = SDL_DOUBLEBUF | SDL_HWSURFACE;
+#endif
+  screen = SDL_SetVideoMode(320, 240, 32, flags | additionalFlags);
 #endif
   SDL_WM_SetCaption("Dino Jump", nullptr);
   SDL_ShowCursor(false);
@@ -436,6 +506,13 @@ void DinoJump::loop() {
       case SDL_KEYUP:
         handleKeyEvent(event);
         break;
+      case SDL_JOYBUTTONDOWN:
+      case SDL_JOYBUTTONUP:
+        handleJoyButton(event.jbutton.button, event.jbutton.state);
+        break;
+      case SDL_JOYHATMOTION:
+        handleJoyHat(event.jhat.value);
+        break;
       default:
         break;
     }
@@ -467,20 +544,47 @@ void callAudioCallback(void *userData, uint8_t *stream, int len) {
   static_cast<DinoJump*>(userData)->mixer.audioCallback(stream, len);
 }
 
+void DinoJump::handleJoyHat(int32_t hatBits) {
+  for (int i = 0; i < 4; ++i) {
+    int32_t mask = 1 << i;
+    int32_t bit = hatBits & mask;
+    if (bit != (lastHatBits & mask)) {
+      Control control = inputLayout.mapHatDirection(mask);
+      handleControlEvent(control, bit);
+    }
+  }
+  lastHatBits = hatBits;
+}
+
+void DinoJump::handleJoyButton(uint8_t button, uint8_t value) {
+  Control control = inputLayout.mapButton(button);
+  handleControlEvent(control, value);
+}
+
 void DinoJump::handleKeyEvent(const SDL_Event &event) {
   SDLKey key = event.key.keysym.sym;
-  if (event.type == SDL_KEYDOWN) {
-    if (key == SDLK_ESCAPE) running = false;
-    if ((key == SDLK_SPACE || key == SDLK_UP) && !duck && jumpsLeft > 0) {
+  Control control = inputLayout.mapKey(key);
+  handleControlEvent(control, event.type == SDL_KEYDOWN);
+}
+
+void DinoJump::handleControlEvent(Control control, bool down) {
+  if (down) {
+    if (controlState[static_cast<int>(control)]) return;
+    controlState[static_cast<int>(control)] = true;
+    if (control == Control::MENU || controlState[Control::START] && controlState[Control::SELECT]) running = false;
+    if ((control == Control::UP || control == Control::SOUTH || control == Control::EAST) && !duck && jumpsLeft > 0) {
       dino.collider.lastY = dino.collider.y + (12 << FP_SHIFT);
       --jumpsLeft;
       mixer.playSound(&jump);
     }
-    if (key == SDLK_t || key == SDLK_BACKSPACE) ++difficulty;
-    if ((key == SDLK_e || key == SDLK_TAB) && difficulty > 1) --difficulty;
+    if (control == Control::R1 || control == Control::R2) ++difficulty;
+    if ((control == Control::L1 || control == Control::L2) && difficulty > 1) --difficulty;
+  } else {
+    if (!controlState[static_cast<int>(control)]) return;
+    controlState[static_cast<int>(control)] = false;
   }
-  if (key == SDLK_DOWN || key == SDLK_LCTRL) {
-    duck = event.type == SDL_KEYDOWN;
+  if (control == Control::DOWN || control == Control::WEST) {
+    duck = down;
   }
 }
 
@@ -697,7 +801,8 @@ void DinoJump::render() {
   }
   SDL_UnlockSurface(realScreen);
   SDL_UnlockSurface(screen);
-  SDL_Flip(realScreen);
+  //SDL_Flip(realScreen);
+  SDL_UpdateRect(realScreen, 0, 0, 0, 0);
 #else
   SDL_Flip(screen);
 #endif
@@ -709,6 +814,7 @@ void mainLoop() {
   app.loop();
 }
 
+#ifndef TEST
 int main() {
   app.init();
 
@@ -721,3 +827,4 @@ int main() {
 #endif
   return 0;
 }
+#endif
