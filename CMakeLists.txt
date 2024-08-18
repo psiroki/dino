@@ -82,12 +82,12 @@ if (NOT ${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
 
     add_executable(dino_jump_test ${tests})
     set_target_properties(dino_jump_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${tool_test_target_dir})
-    target_compile_options(dino_jump_test PUBLIC "-g" "-DTEST")
+    target_compile_options(dino_jump_test PRIVATE "-g" "-DTEST")
     target_link_libraries(dino_jump_test ${SDL_LIBRARY})
 
     add_executable(gentool ${tools})
     set_target_properties(gentool PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${tool_test_target_dir})
-    target_compile_options(gentool PUBLIC "-O3" "-DTEST")
+    target_compile_options(gentool PRIVATE "-O3" "-DTEST")
     target_link_libraries(gentool ${SDL_LIBRARY})
   endif()
 endif()
@@ -97,8 +97,13 @@ add_executable(dino_jump ${sources})
 if (NOT ${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
 
   set_target_properties(dino_jump PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${main_target_dir})
-  target_compile_options(dino_jump PUBLIC "-g")
+  target_compile_options(dino_jump PRIVATE
+      $<$<CONFIG:Debug>:-g>
+      $<$<CONFIG:Release>:-O3 -flto>)
   target_link_libraries(dino_jump ${SDL_LIBRARY} pthread)
+  if(MIYOO)
+    target_link_options(dino_jump PRIVATE -lmi_ao -lcam_os_wrapper -lmi_sys)
+  endif()
 
 else()
   message("Assets: ${assets_dir}")

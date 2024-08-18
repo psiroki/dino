@@ -20,6 +20,7 @@
 #endif
 
 #ifdef MIYOO
+#include "miyoo_audio.hh"
 #define BLOWUP 1
 #define FLIP
 #endif
@@ -116,6 +117,10 @@ public:
 void Mixer::audioCallback(uint8_t *stream, int len) {
   uint64_t time = audioTime[currentStopwatch];
   int numSamples = len / 4;
+
+  if (time < len) {
+    std::cerr << "audioCallback at " << time << std::endl;
+  }
 
   int nextWatch = (currentStopwatch + 1) & 3;
   times[nextWatch].reset();
@@ -328,9 +333,12 @@ class DinoJump {
 
   PerfTextOverlay overlay;
 
+  bool audioInitialized;
   SoundBuffer jump;
   SoundBuffer step;
   Mixer mixer;
+  SDL_AudioSpec desiredAudioSpec;
+  SDL_AudioSpec actualAudioSpec;
 
   bool running;
 
@@ -363,13 +371,14 @@ class DinoJump {
   inline uint32_t randomBrightColor() {
     return SDL_MapRGB(screen->format, random() & 255 | 128, random() & 255 | 128, random() & 255 | 128);
   }
+  void initAudio();
   void audioCallback(uint8_t *stream, int len);
 public:
   inline DinoJump():
       screen(nullptr),
       running(false),
       frame(0),
-
+      audioInitialized(false),
       lastHatBits(0),
       activity(Activity::playing),
       random(micros()),
@@ -389,6 +398,29 @@ public:
 void DinoJump::init() {
   if (screen) return;
 
+  std::cerr << "1.." << std::endl;
+  SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK);
+
+  uint32_t flags = SDL_DOUBLEBUF | SDL_HWSURFACE;
+  std::cerr << "2.." << std::endl;
+#if BLOWUP
+  realScreen = SDL_SetVideoMode(320 << BLOWUP, 240 << BLOWUP, 32, 0);
+  std::cerr << "2.1.." << std::endl;
+  screen = SDL_CreateRGBSurface(0, 320, 240, 32,
+      realScreen->format->Rmask, realScreen->format->Gmask, realScreen->format->Bmask,
+      realScreen->format->Amask);
+  std::cerr << "2.2.." << std::endl;
+#else
+#ifdef __EMSCRIPTEN__
+  uint32_t additionalFlags = 0;
+#else
+  uint32_t additionalFlags = SDL_DOUBLEBUF | SDL_HWSURFACE;
+#endif
+  screen = SDL_SetVideoMode(320, 240, 32, flags | additionalFlags);
+#endif
+
+
+  std::cerr << "3.." << std::endl;
   memset(&controlState, 0, sizeof(controlState));
   if (LAYOUT_FILE) {
     char path[256];
@@ -424,35 +456,12 @@ void DinoJump::init() {
     return s * vol >> 4;
   });
 
-  SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK);
+  initAudio();
 
   if (SDL_NumJoysticks() > 0) {
     SDL_JoystickOpen(0);
   }
-
-  SDL_AudioSpec desired;
-  desired.freq = 44100;
-  desired.format = AUDIO_S16LSB;
-  desired.channels = 2;
-  desired.samples = 4096;
-  desired.userdata = this;
-  desired.callback = callAudioCallback;
-  SDL_OpenAudio(&desired, nullptr);
-  SDL_PauseAudio(0);
-  uint32_t flags = 0;
-#if BLOWUP
-  realScreen = SDL_SetVideoMode(320 << BLOWUP, 240 << BLOWUP, 32, 0);
-  screen = SDL_CreateRGBSurface(0, 320, 240, 32,
-      realScreen->format->Rmask, realScreen->format->Gmask, realScreen->format->Bmask,
-      realScreen->format->Amask);
-#else
-#ifdef __EMSCRIPTEN__
-  uint32_t additionalFlags = 0;
-#else
-  uint32_t additionalFlags = SDL_DOUBLEBUF | SDL_HWSURFACE;
-#endif
-  screen = SDL_SetVideoMode(320, 240, 32, flags | additionalFlags);
-#endif
+  std::cerr << "4.." << std::endl;
   SDL_WM_SetCaption("Dino Jump", nullptr);
   SDL_ShowCursor(false);
   dino.appearance.color = randomBrightColor();
@@ -461,11 +470,13 @@ void DinoJump::init() {
   dino.appearance.frameWidth = 24;
   dino.appearance.frameX = 4;
   dino.appearance.yOffset = 3;
+  std::cerr << "5.." << std::endl;
   bg = loadPNG("assets/sky.png");
   ground = loadPNG("assets/ground.png");
   blimp = loadPNG("assets/blimp.png");
   building = loadPNG("assets/building.png");
   shadow = loadPNG("assets/shadow.png");
+  std::cerr << "6.." << std::endl;
   const int widening = 2;
   wideShadow = SDL_CreateRGBSurface(0, shadow->w * widening, shadow-> h, 32,
       shadow->format->Rmask, shadow->format->Gmask, shadow->format->Bmask,
@@ -473,6 +484,7 @@ void DinoJump::init() {
 
   cy = (screen->h - ground->h + 1) << DP_SHIFT;
 
+  std::cerr << "7.." << std::endl;
   SDL_LockSurface(shadow);
   SDL_LockSurface(wideShadow);
 
@@ -497,6 +509,44 @@ void DinoJump::init() {
 
   SDL_SetAlpha(shadow, SDL_SRCALPHA, 255);
   SDL_SetAlpha(wideShadow, SDL_SRCALPHA, 255);
+}
+
+void DinoJump::initAudio() {
+  if (audioInitialized) return;
+  std::cerr << "Initializing audio" << std::endl;
+  // sound doesn't seem to be working on miyoo
+  desiredAudioSpec.freq = 44100;
+  desiredAudioSpec.format = AUDIO_S16;
+  desiredAudioSpec.channels = 2;
+  desiredAudioSpec.samples = 2048;
+  desiredAudioSpec.userdata = this;
+  desiredAudioSpec.callback = callAudioCallback;
+  memcpy(&actualAudioSpec, &desiredAudioSpec, sizeof(actualAudioSpec));
+#ifdef MIYOO
+  if (initMiyooAudio(desiredAudioSpec)) {
+    std::cerr << "Failed to set up audio. Running without it." << std::endl;
+    audioInitialized = true;
+    return;
+  }
+#else
+  char log[256] { 0 };
+  SDL_AudioDriverName(log, sizeof(log));
+  std::cerr << "Audio driver: " << log << std::endl;
+  std::cerr << "Opening audio device" << std::endl;
+  if (SDL_OpenAudio(&desiredAudioSpec, &actualAudioSpec)) {
+    std::cerr << "Failed to set up audio. Running without it." << std::endl;
+    audioInitialized = true;
+    return;
+  }
+  std::cerr << "Freq: " << actualAudioSpec.freq << std::endl;
+  std::cerr << "Format: " << actualAudioSpec.format << std::endl;
+  std::cerr << "Channels: " << static_cast<int>(actualAudioSpec.channels) << std::endl;
+  std::cerr << "Samples: " << actualAudioSpec.samples << std::endl;
+  std::cerr << "Starting audio" << std::endl;
+  SDL_PauseAudio(0);
+#endif
+  std::cerr << "Audio initialized" << std::endl;
+  audioInitialized = true;
 }
 
 void DinoJump::loop() {
@@ -529,6 +579,7 @@ void DinoJump::loop() {
 
 void DinoJump::run() {
   running = true;
+  std::cerr << "Entering main loop" << std::endl;
 
   while (running) {
     Stopwatch frameStart;
@@ -797,7 +848,7 @@ void DinoJump::render() {
 #endif
     for (int x = 0; x < realScreen->w; ++x) {
 #ifdef FLIP
-      *target++ = source[sw - (x >> BLOWUP) - 1];
+      *target++ = source[sw - (x >> BLOWUP) - 1] | 0xFF000000u;
 #else
       *target++ = source[x >> BLOWUP];
 #endif
@@ -806,8 +857,7 @@ void DinoJump::render() {
   }
   SDL_UnlockSurface(realScreen);
   SDL_UnlockSurface(screen);
-  //SDL_Flip(realScreen);
-  SDL_UpdateRect(realScreen, 0, 0, 0, 0);
+  SDL_Flip(realScreen);
 #else
   SDL_Flip(screen);
 #endif
