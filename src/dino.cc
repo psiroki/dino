@@ -262,6 +262,8 @@ struct Dino {
   DynamicCollider collider;
   Appearance appearance;
 
+  DynamicCollider shadowCollider;
+
   Dino() {
     collider.w = 24 << FP_SHIFT;
     collider.h = 24 << FP_SHIFT;
@@ -269,6 +271,8 @@ struct Dino {
     collider.y = -collider.h / 2;
     collider.lastX = collider.x;
     collider.lastY = collider.y;
+
+    shadowCollider = collider;
   }
 
   inline void duckEnabled(bool val) {
@@ -281,8 +285,12 @@ struct Dino {
 };
 
 struct Obstacle {
+  static int idCounter;
+
   Collider collider;
   Appearance appearance;
+
+  int id;
 
   Obstacle() {
     reset();
@@ -292,6 +300,8 @@ struct Obstacle {
   void reset(int width = 0, int height=0);
 };
 
+int Obstacle::idCounter = 0;
+
 void Obstacle::reset(int width, int height) {
   if (!height) height = 32 << FP_SHIFT;
   if (!width) width = 16 << FP_SHIFT;
@@ -299,6 +309,7 @@ void Obstacle::reset(int width, int height) {
   collider.h = height;
   collider.x = (640 << FP_SHIFT) + collider.w / 2;
   collider.y = -collider.h / 2;
+  id = ++idCounter;
 }
 
 enum class Activity { playing, stopping };
@@ -345,6 +356,7 @@ class DinoJump {
 
   int frame;
   int lastStepFrame;
+  int lastObstacleId;
   int backgroundOffset;
   Random random;
   Dino dino;
@@ -358,6 +370,7 @@ class DinoJump {
   Obstacle obstacles[MAX_OBSTACLES];
   int numObstacles;
   int difficulty;
+  int score;
   Activity activity;
   Stopwatch stopEnd;
 
@@ -388,7 +401,9 @@ public:
       jumpsLeft(JUMPS),
       duck(false),
       numObstacles(0),
+      lastObstacleId(-1),
       difficulty(1),
+      score(0),
       overlay(320, 240, 0) {
   }
   void init();
@@ -722,6 +737,9 @@ void DinoJump::update() {
         activity = Activity::stopping;
         stopEnd.resetWithDelta(0.5f);
         mixer.playSound(&collide);
+      } else if (c.overlaps(dino.shadowCollider) && obstacles[i].id != lastObstacleId) {
+        lastObstacleId = obstacles[i].id;
+        score += difficulty * (-dino.collider.y < (8 << FP_SHIFT) ? 12 : 6) / 3;
       }
     }
     int stepFrame = (frame % 24 >> 2);
@@ -736,6 +754,7 @@ void DinoJump::update() {
     if (stopEnd.elapsedSeconds() > 0.0f) {
       activity = Activity::playing;
       numObstacles = 0;
+      score = 0;
     }
   }
   ++frame;
@@ -835,10 +854,12 @@ void DinoJump::render() {
     drawCollider(o->collider, o->appearance);
   }
   drawCollider(dino.collider, dino.appearance);
+  overlay.clear();
   char str[256];
   snprintf(str, sizeof(str), "Difficulty: %d", difficulty);
-  overlay.clear();
   overlay.write(overlay.getNumColumns() - strnlen(str, sizeof(str)) - 1, 1, str);
+  snprintf(str, sizeof(str), "Score: %d", score);
+  overlay.write(1, 1, str);
   overlay.drawOverlay(screen);
 #if BLOWUP
   SDL_LockSurface(realScreen);
