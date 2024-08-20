@@ -18,11 +18,25 @@ struct KeyHasher {
   
   inline KeyHasher(int32_t m, int32_t n, int32_t o, int32_t s): m(m), n(n), o(o), s(s) {}
 
-  inline int32_t hash(int32_t val) const {
-    int hash = val * m;
+  inline uint32_t hash(int32_t val) const {
+    uint32_t hash = val * m;
     hash += (val * n) >> (s / 2);
     hash ^= (val * o) >> s;
     return hash;
+  }
+
+  inline uint32_t hash(const char *str) const {
+    int32_t len = strnlen(str, 256);
+    const int32_t *words = reinterpret_cast<const int32_t*>(str);
+    uint32_t h = 0;
+    while (len > 0) {
+      int32_t w = *words++;
+      if (len < 4) w &= (~0u >> (32 - len*8));
+      h += hash(w);
+      len -= 4;
+    }
+    h &= INT32_MAX;
+    return h;
   }
 };
 

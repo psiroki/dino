@@ -19,9 +19,9 @@ const uint8_t defaultLayoutBytes[] = {
 const KeyMapTable* const InputMapping::defaultLayout = reinterpret_cast<const KeyMapTable*>(defaultLayoutBytes);
 
 Control InputMapping::mapRaw(int32_t val) const {
-  int hash = table->hasher.hash(val);
+  uint32_t hash = table->hasher.hash(val);
   for (int i = table->maxProbes; i > 0; --i, ++hash) {
-    int32_t baseIndex = 2*(hash % table->numEntries);
+    uint32_t baseIndex = 2*(hash % table->numEntries);
     const int32_t *entry = table->mappings + baseIndex;
     if (entry[0] == val) return static_cast<Control>(entry[1]);
   }

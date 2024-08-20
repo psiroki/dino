@@ -4,6 +4,8 @@
 #include <iomanip>
 #include <string>
 #include <filesystem>
+#include <vector>
+namespace fs = std::filesystem;
 
 #include "../src/input.hh"
 
@@ -115,18 +117,15 @@ void layoutKeys(const InputLayout &layout) {
       int32_t o = static_cast<int32_t>(col);
       int32_t s = static_cast<int32_t>(i & 15);
       memset(taken, 0, tableSize * sizeof(*taken));
-      if (!(i & (16777215LL|(16777215LL << 16)))) {
-        cerr << "Trying " << m << endl;
-      }
       bool ok = true;
       int maxProbe = 0;
       KeyHasher hasher(m, n, o, s);
       for (int j = 0; j < numKeys; ++j) {
         int code = layout.keys[j].code;
         bool allTaken = true;
-        int hash = hasher.hash(code);
+        uint32_t hash = hasher.hash(code);
         for (int k = 0; k < 4; ++k) {
-          int index = (hash + k) % tableSize;
+          uint32_t index = (hash + k) % tableSize;
           if (!taken[index]) {
             allTaken = false;
             taken[index] = true;
@@ -176,8 +175,8 @@ void layoutKeys(const InputLayout &layout) {
     const uint8_t *end = reinterpret_cast<const uint8_t*>(hdr.mappings + tableSize*2);
     for (int j = 0; j < numKeys; ++j) {
       int code = layout.keys[j].code;
-      int hash = hasher.hash(code);
-      int base = (hash % tableSize)*2;
+      uint32_t hash = hasher.hash(code);
+      uint32_t base = (hash % tableSize)*2;
       table[base] = code;
       table[base + 1] = j;
     }
@@ -234,10 +233,137 @@ void layoutAll() {
   }
 }
 
+KeyHasher packNames(std::vector<std::string> names) {
+  const int numKeys = names.size();
+  bool taken[numKeys*2*16];
+  int maxSize = numKeys;
+  int32_t bestProbe = INT32_MAX;
+  int bestTableSize = 0;
+  KeyHasher bestHasher;
+  for (int tableSize = numKeys; tableSize <= maxSize; ++tableSize) {
+    for (int64_t i = 0; i < numKeys*numKeys*1024*numKeys*32; ++i) {
+      int64_t r = i >> 4;
+      int64_t rp = r / (numKeys << 3);
+      int64_t layer = rp / (numKeys << 3);
+      int64_t row = rp % (numKeys << 3);
+      int64_t col = r % (numKeys << 3);
+      if (!row || !col || !layer) continue;
+      int32_t m = static_cast<int32_t>(layer);
+      int32_t n = static_cast<int32_t>(row);
+      int32_t o = static_cast<int32_t>(col);
+      int32_t s = static_cast<int32_t>(i & 15);
+      memset(taken, 0, tableSize * sizeof(*taken));
+      bool ok = true;
+      int maxProbe = 0;
+      KeyHasher hasher(m, n, o, s);
+      for (int j = 0; j < numKeys; ++j) {
+        const char *code = names[j].c_str();
+        bool allTaken = true;
+        uint32_t hash = hasher.hash(code);
+        for (int k = 0; k < 1; ++k) {
+          uint32_t index = (hash + k) % tableSize;
+          if (!taken[index]) {
+            allTaken = false;
+            taken[index] = true;
+            if (maxProbe <= k) {
+              maxProbe = k+1;
+            }
+            break;
+          }
+        }
+        if (allTaken) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok && maxProbe < bestProbe) {
+        bestProbe = maxProbe;
+        bestHasher = hasher;
+        bestTableSize = tableSize;
+        if (maxProbe == 1) break;
+      }
+    }
+  }
+  if (bestProbe < 16) {
+    KeyHasher hasher = bestHasher;
+    int tableSize = bestTableSize;
+    cout << "\nFilenames" << endl;
+    cout << "m: " << hasher.m << endl;
+    cout << "n: " << hasher.n << endl;
+    cout << "o: " << hasher.o << endl;
+    cout << "s: " << hasher.s << endl;
+    cout << "numKeys: " << numKeys << endl;
+    cout << "maxProbe: " << bestProbe << endl;
+    cout << "tableSize: " << bestTableSize << endl;
+    memset(taken, 0, tableSize * sizeof(*taken));
+    for (int j = 0; j < numKeys; ++j) {
+      const char *code = names[j].c_str();
+      bool allTaken = true;
+      uint32_t hash = hasher.hash(code);
+      uint32_t index = hash % tableSize;
+      taken[index] = true;
+    }
+    for (int s = 0; s < bestTableSize; ++s) {
+      cout << (taken[s] ? "O" : "_");
+    }
+    cout << endl;
+
+    char buffer[256*4+32];
+    const uint8_t *start = reinterpret_cast<const uint8_t*>(buffer);
+    memset(buffer, 0, sizeof(buffer));
+    KeyMapTable &hdr(*reinterpret_cast<KeyMapTable*>(buffer));
+    int32_t *table = hdr.mappings;
+    hdr.numEntries = tableSize;
+    hdr.hasher = hasher;
+    hdr.maxProbes = bestProbe;
+    const uint8_t *end = reinterpret_cast<const uint8_t*>(hdr.mappings + tableSize*2);
+    for (int j = 0; j < numKeys; ++j) {
+      const char *code = names[j].c_str();
+      uint32_t hash = hasher.hash(code);
+      uint32_t base = (hash % tableSize)*2;
+      table[base] = hash;
+      table[base + 1] = j;
+    }
+    for (int j = 0; j < numKeys; ++j) {
+      if (table[j*2]) {
+        int meaning = table[j*2+1];
+        char c[2] = { static_cast<char>(meaning + 'A'), 0 };
+        cout << c;
+      } else {
+        cout << "_";
+      }
+    }
+    cout << endl;
+  }
+  return bestHasher;
+}
+
+void packFiles() {
+  std::cout << "Packing files..." << std::endl;
+  std::string assets = "/assets/";
+  std::vector<std::string> filenames;
+  for (const fs::directory_entry &entry: fs::directory_iterator(baseDir+"/../.."+assets)) {
+    if (!entry.is_regular_file()) continue;
+    fs::path path = entry.path();
+    std::string ext = path.extension().string();
+    if (ext == ".layout") continue;
+    std::string ps = path.string();
+    uint32_t offset = ps.find(assets);
+    if (offset == std::string::npos) {
+      std::cerr << ps << " seems fishy" << std::endl;
+    }
+    offset += assets.length();
+    filenames.push_back(ps.substr(offset));
+  }
+  packNames(filenames);
+}
 
 int main(int argc, const char **argv) {
-  std::filesystem::path fsPath(argv[0]);
+  fs::path fsPath(argv[0]);
   baseDir = fsPath.parent_path().string();
-  layoutAll();
+  std::string arg1 = argv[1] ? std::string(argv[1]) : "";
+  if (!arg1.length() || arg1 == "layouts") layoutAll();
+  if (!arg1.length() || arg1 == "pack") packFiles();
+  return 0;
 }
 

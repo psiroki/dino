@@ -101,31 +101,31 @@ class Mixer {
   static const int soundQueueSize = 16;
 
   uint64_t audioTime[4];
-  Stopwatch times[4];
+  Timestamp times[4];
   MixChannel soundsToAdd[soundQueueSize];
   int soundRead;
   int soundWrite;
   MixChannel channels[maxNumChannels];
   int numChannelsUsed;
-  int currentStopwatch;
+  int currentTimes;
 public:
-  inline Mixer(): audioTime { 0, 0, 0, 0 }, currentStopwatch(0), soundRead(0), soundWrite(0) { }
+  inline Mixer(): audioTime { 0, 0, 0, 0 }, currentTimes(0), soundRead(0), soundWrite(0) { }
   void audioCallback(uint8_t *stream, int len);
   void playSound(const SoundBuffer *buffer);
 };
 
 void Mixer::audioCallback(uint8_t *stream, int len) {
-  uint64_t time = audioTime[currentStopwatch];
+  uint64_t time = audioTime[currentTimes];
   int numSamples = len / 4;
 
   if (time < len) {
     std::cerr << "audioCallback at " << time << std::endl;
   }
 
-  int nextWatch = (currentStopwatch + 1) & 3;
+  int nextWatch = (currentTimes + 1) & 3;
   times[nextWatch].reset();
   audioTime[nextWatch] = time + numSamples;
-  currentStopwatch = nextWatch;
+  currentTimes = nextWatch;
 
   // remove finished channels
   for (int i = numChannelsUsed - 1; i >= 0; --i) {
@@ -169,7 +169,7 @@ void Mixer::audioCallback(uint8_t *stream, int len) {
 void Mixer::playSound(const SoundBuffer *buffer) {
   MixChannel &ch(soundsToAdd[soundWrite]);
   ch.buffer = buffer;
-  int w = currentStopwatch;
+  int w = currentTimes;
   ch.timeStart = audioTime[w] + times[w].elapsedSeconds() * 44100;
   soundWrite = (soundWrite + 1) & (soundQueueSize - 1);
 }
@@ -372,7 +372,7 @@ class DinoJump {
   int difficulty;
   int score;
   Activity activity;
-  Stopwatch stopEnd;
+  Timestamp stopEnd;
 
   void drawCollider(const Collider &c, const Appearance &appearance);
   void drawGround();
@@ -606,7 +606,7 @@ void DinoJump::run() {
   std::cerr << "Entering main loop" << std::endl;
 
   while (running) {
-    Stopwatch frameStart;
+    Timestamp frameStart;
 
     loop();
 
