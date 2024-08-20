@@ -1,5 +1,9 @@
 /*
-  Based on special customized version for the DraStic emulator that runs on
+  Based on fragments of the DraStic emulator source.
+  The original copyright notice can be found below.
+*/
+/*
+  Special customized version for the DraStic emulator that runs on
   Miyoo Mini (Plus), TRIMUI-SMART and Miyoo A30 handhelds.
 
   Copyright (C) 1997-2022 Sam Lantinga <slouken@libsdl.org>

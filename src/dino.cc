@@ -336,6 +336,7 @@ class DinoJump {
   bool audioInitialized;
   SoundBuffer jump;
   SoundBuffer step;
+  SoundBuffer collide;
   Mixer mixer;
   SDL_AudioSpec desiredAudioSpec;
   SDL_AudioSpec actualAudioSpec;
@@ -453,6 +454,14 @@ void DinoJump::init() {
     int angle = index % 600;
     int32_t s = angle < 300 ? -16 : 16;
     int vol = 10000 - index;
+    return s * vol >> 4;
+  });
+
+  collide.generateMono(8000, [](uint32_t index) -> int {
+    if (index >= 2000 && index < 4000) return 0;
+    int angle = index % 600;
+    int32_t s = angle < 300 ? -16 : 16;
+    int vol = 20000 - index * 2;
     return s * vol >> 4;
   });
 
@@ -712,6 +721,7 @@ void DinoJump::update() {
       if (c.overlaps(dino.collider)) {
         activity = Activity::stopping;
         stopEnd.resetWithDelta(0.5f);
+        mixer.playSound(&collide);
       }
     }
     int stepFrame = (frame % 24 >> 2);
@@ -825,6 +835,10 @@ void DinoJump::render() {
     drawCollider(o->collider, o->appearance);
   }
   drawCollider(dino.collider, dino.appearance);
+  char str[256];
+  snprintf(str, sizeof(str), "Difficulty: %d", difficulty);
+  overlay.clear();
+  overlay.write(overlay.getNumColumns() - strnlen(str, sizeof(str)) - 1, 1, str);
   overlay.drawOverlay(screen);
 #if BLOWUP
   SDL_LockSurface(realScreen);
