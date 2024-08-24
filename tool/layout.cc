@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <iostream>
 #include <fstream>
+#include <memory>
 #include <iomanip>
 #include <string>
 #include <filesystem>
@@ -8,10 +9,12 @@
 namespace fs = std::filesystem;
 
 #include "../src/input.hh"
+#include "../src/pack.hh"
 
 using namespace std;
 
-std::string baseDir;
+string baseDir;
+string assets = "/assets/";
 
 enum class Meaning {
   UP, DOWN, LEFT, RIGHT,
@@ -203,37 +206,67 @@ void layoutKeys(const InputLayout &layout) {
     if (strncmp("PC", layout.layoutName, 3) == 0) {
       const uint8_t* ptr = start;
       int count = 0;
-      std::cout << "const uint8_t defaultLayoutBytes[] = {";
+      cout << "const uint8_t defaultLayoutBytes[] = {";
       while (ptr < end) {
         if (!(count & 15)) {
-          std::cout << std::endl << "  ";
+          cout << endl << "  ";
         }
-        std::cout << "0x" << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(*ptr) << ",";
+        cout << "0x" << hex << setw(2) << setfill('0') << static_cast<int>(*ptr) << ",";
         ptr++;
         count++;
       }
-      std::cout << std::dec << std::endl;
-      std::cout << "};" << std::endl;
+      cout << dec << endl;
+      cout << "};" << endl;
     }
-    std::string filename = baseDir + "/../../assets/" + std::string(layout.layoutName) + ".layout";
-    std::ofstream file(filename, std::ios::binary);
+    string filename = baseDir + "/../.." + assets + string(layout.layoutName) + ".layout";
+    ofstream file(filename, ios::binary);
     if (file.is_open()) {
       file.write(reinterpret_cast<const char*>(start), end - start);
       file.close();
     } else {
-      std::cerr << "Unable to open file: " << filename << std::endl;
+      cerr << "Unable to open file: " << filename << endl;
     }
   }
 }
 
 void layoutAll() {
-  std::cout << "Generating layouts..." << std::endl;
+  cout << "Generating layouts..." << endl;
   for (int i = 0; i < numLayouts; ++i) {
     layoutKeys(layouts[i]);
   }
 }
 
-KeyHasher packNames(std::vector<std::string> names) {
+struct AssetFile {
+  string name;
+  string path;
+  uint32_t size;
+};
+
+struct SlicedBufferEditor: public SlicedBuffer {
+  inline SlicedBufferEditor() {
+    setMagic();
+  }
+
+  inline void setMagic() {
+    magic = MAGIC;
+  }
+
+  inline uint32_t* getTable() {
+    return table();
+  }
+
+  inline BufferSlice* getSlices() {
+    return slices();
+  }
+
+  inline uint32_t* getContents() {
+    return contents();
+  }
+};
+
+KeyHasher packFiles(vector<AssetFile> names) {
+  uint32_t overallSize = 0;
+  for (AssetFile file: names) overallSize += (file.size + 3) & ~3;
   const int numKeys = names.size();
   bool taken[numKeys*2*16];
   int maxSize = numKeys;
@@ -257,7 +290,7 @@ KeyHasher packNames(std::vector<std::string> names) {
       int maxProbe = 0;
       KeyHasher hasher(m, n, o, s);
       for (int j = 0; j < numKeys; ++j) {
-        const char *code = names[j].c_str();
+        const char *code = names[j].name.c_str();
         bool allTaken = true;
         uint32_t hash = hasher.hash(code);
         for (int k = 0; k < 1; ++k) {
@@ -297,7 +330,7 @@ KeyHasher packNames(std::vector<std::string> names) {
     cout << "tableSize: " << bestTableSize << endl;
     memset(taken, 0, tableSize * sizeof(*taken));
     for (int j = 0; j < numKeys; ++j) {
-      const char *code = names[j].c_str();
+      const char *code = names[j].name.c_str();
       bool allTaken = true;
       uint32_t hash = hasher.hash(code);
       uint32_t index = hash % tableSize;
@@ -308,21 +341,48 @@ KeyHasher packNames(std::vector<std::string> names) {
     }
     cout << endl;
 
-    char buffer[256*4+32];
-    const uint8_t *start = reinterpret_cast<const uint8_t*>(buffer);
-    memset(buffer, 0, sizeof(buffer));
-    KeyMapTable &hdr(*reinterpret_cast<KeyMapTable*>(buffer));
-    int32_t *table = hdr.mappings;
-    hdr.numEntries = tableSize;
-    hdr.hasher = hasher;
-    hdr.maxProbes = bestProbe;
-    const uint8_t *end = reinterpret_cast<const uint8_t*>(hdr.mappings + tableSize*2);
+    uint32_t bufferWordSize = (sizeof(SlicedBuffer) + // file header
+      tableSize * 2 * 4 + // hashtable entries
+      sizeof(BufferSlice) * names.size() +  // slices
+      overallSize)  // file content
+      >> 2;
+    unique_ptr<uint32_t[]> buffer = make_unique<uint32_t[]>(bufferWordSize);
+    uint32_t *start = buffer.get();
+    uint32_t *end = start + bufferWordSize;
+    memset(start, 0, bufferWordSize*4);
+    SlicedBufferEditor *sbe = reinterpret_cast<SlicedBufferEditor*>(start);
+    sbe->setMagic();
+    sbe->hasher = hasher;
+    sbe->numSlices = names.size();
+    sbe->numTableEntries = tableSize;
+    sbe->maxProbes = bestProbe;
+    uint32_t *table = sbe->getTable();
+    BufferSlice *slices = sbe->getSlices();
+    uint32_t *contentPos = sbe->getContents();
+    for (int i = 0; i < tableSize; ++i) {
+      table[i*2] = ~0U;
+      table[i*2+1] = ~0U;
+    }
     for (int j = 0; j < numKeys; ++j) {
-      const char *code = names[j].c_str();
+      const char *code = names[j].name.c_str();
       uint32_t hash = hasher.hash(code);
-      uint32_t base = (hash % tableSize)*2;
-      table[base] = hash;
-      table[base + 1] = j;
+      cout << "File name: " << code << ", hash: " << hash << endl;
+      uint32_t index = (hash % tableSize)*2;
+      table[index] = hash;
+      table[index + 1] = j;
+      uint32_t *contentEnd = contentPos + ((names[j].size + 3) >> 2);
+      if (contentEnd > end) {
+        cerr << "Assertion failed, end pointer is over end: " << contentEnd << " > " << end << endl;
+        exit(1);
+      }
+      ifstream stream(names[j].path, ifstream::binary);
+      stream.read(reinterpret_cast<char*>(contentPos), names[j].size);
+      slices[j].set(contentPos, names[j].size);
+      if (slices[j].ptr() != contentPos) {
+        cerr << "Assertion failed, pointer did not resolve correctly: got " << slices[j].ptr() << " instead of " << contentPos << endl;
+        exit(1);
+      }
+      contentPos = contentEnd;
     }
     for (int j = 0; j < numKeys; ++j) {
       if (table[j*2]) {
@@ -334,34 +394,42 @@ KeyHasher packNames(std::vector<std::string> names) {
       }
     }
     cout << endl;
+    ofstream output(baseDir+"/../.."+assets+"assets.bin", ofstream::binary);
+    if (output.is_open()) {
+      output.write(reinterpret_cast<char*>(start), bufferWordSize << 2);
+      output.close();
+    }
   }
   return bestHasher;
 }
 
 void packFiles() {
-  std::cout << "Packing files..." << std::endl;
-  std::string assets = "/assets/";
-  std::vector<std::string> filenames;
+  cout << "Packing files..." << endl;
+  vector<AssetFile> files;
   for (const fs::directory_entry &entry: fs::directory_iterator(baseDir+"/../.."+assets)) {
     if (!entry.is_regular_file()) continue;
     fs::path path = entry.path();
-    std::string ext = path.extension().string();
-    if (ext == ".layout") continue;
-    std::string ps = path.string();
+    string ext = path.extension().string();
+    if (ext == ".layout" || ext == ".bin") continue;
+    string ps = path.string();
     uint32_t offset = ps.find(assets);
-    if (offset == std::string::npos) {
-      std::cerr << ps << " seems fishy" << std::endl;
+    if (offset == string::npos) {
+      cerr << ps << " seems fishy" << endl;
     }
-    offset += assets.length();
-    filenames.push_back(ps.substr(offset));
+    ++offset;
+    ifstream file(path.string(), ifstream::ate | ifstream::binary);
+    uint32_t fileSize = file.tellg();
+    AssetFile assetFile { .name = ps.substr(offset), .path = path.string(), .size = fileSize };
+    files.push_back(assetFile);
   }
-  packNames(filenames);
+  KeyHasher hasher = packFiles(files);
+
 }
 
 int main(int argc, const char **argv) {
   fs::path fsPath(argv[0]);
   baseDir = fsPath.parent_path().string();
-  std::string arg1 = argv[1] ? std::string(argv[1]) : "";
+  string arg1 = argv[1] ? string(argv[1]) : "";
   if (!arg1.length() || arg1 == "layouts") layoutAll();
   if (!arg1.length() || arg1 == "pack") packFiles();
   return 0;

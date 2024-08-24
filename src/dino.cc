@@ -10,6 +10,7 @@
 #include "image.hh"
 #include "input.hh"
 #include "perftext.hh"
+#include "pack.hh"
 
 #ifdef __EMSCRIPTEN__
 // no blowup
@@ -55,6 +56,28 @@ inline int max(int a, int b) {
 }
 
 typedef int (*MonoSampleGenerator)(uint32_t sampleIndex);
+
+template<typename T> class AutoDeleteArray {
+  T* ptr;
+public:
+  AutoDeleteArray(T* ptr): ptr(ptr) { }
+  ~AutoDeleteArray() {
+    delete[] ptr;
+    ptr = nullptr;
+  }
+
+  T* asPointer() {
+    return ptr;
+  }
+
+  operator T*() {
+    return ptr;
+  }
+
+  T* operator->() {
+    return ptr;
+  }
+};
 
 struct SoundBuffer {
   uint32_t *samples;
@@ -386,6 +409,7 @@ class DinoJump {
     return SDL_MapRGB(screen->format, random() & 255 | 128, random() & 255 | 128, random() & 255 | 128);
   }
   void initAudio();
+  void initAssets();
   void audioCallback(uint8_t *stream, int len);
 public:
   inline DinoJump():
@@ -488,18 +512,30 @@ void DinoJump::init() {
   std::cerr << "4.." << std::endl;
   SDL_WM_SetCaption("Dino Jump", nullptr);
   SDL_ShowCursor(false);
+  initAssets();
+}
+
+
+void DinoJump::initAssets() {
+  std::ifstream packFile("assets/assets.bin", std::ifstream::binary | std::ifstream::ate);
+  uint32_t size = packFile.tellg();
+  packFile.seekg(0);
+  AutoDeleteArray<char> buf(new char[size]);
+  packFile.read(buf, size);
+  packFile.close();
+  SlicedBuffer *bin = reinterpret_cast<SlicedBuffer*>(buf.asPointer());
   dino.appearance.color = randomBrightColor();
-  vita = loadPNG("assets/vita.png");
+  vita = bin->loadPNG("assets/vita.png");
   dino.appearance.surface = vita;
   dino.appearance.frameWidth = 24;
   dino.appearance.frameX = 4;
   dino.appearance.yOffset = 3;
   std::cerr << "5.." << std::endl;
-  bg = loadPNG("assets/sky.png");
-  ground = loadPNG("assets/ground.png");
-  blimp = loadPNG("assets/blimp.png");
-  building = loadPNG("assets/building.png");
-  shadow = loadPNG("assets/shadow.png");
+  bg = bin->loadPNG("assets/sky.png");
+  ground = bin->loadPNG("assets/ground.png");
+  blimp = bin->loadPNG("assets/blimp.png");
+  building = bin->loadPNG("assets/building.png");
+  shadow = bin->loadPNG("assets/shadow.png");
   std::cerr << "6.." << std::endl;
   const int widening = 2;
   wideShadow = SDL_CreateRGBSurface(0, shadow->w * widening, shadow-> h, 32,
@@ -534,6 +570,7 @@ void DinoJump::init() {
   SDL_SetAlpha(shadow, SDL_SRCALPHA, 255);
   SDL_SetAlpha(wideShadow, SDL_SRCALPHA, 255);
 }
+
 
 void DinoJump::initAudio() {
   if (audioInitialized) return;

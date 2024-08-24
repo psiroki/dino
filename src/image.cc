@@ -4,10 +4,23 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+static SDL_Surface* finishLoad(unsigned char *data, int width, int height, int channels);
+
 SDL_Surface* loadPNG(const char* filename) {
     int width, height, channels;
     unsigned char *data = stbi_load(filename, &width, &height, &channels, STBI_rgb_alpha);
 
+    return finishLoad(data, width, height, channels);
+}
+
+SDL_Surface* loadPNGFromMemory(const void* contents, int size) {
+    int width, height, channels;
+    unsigned char *data = stbi_load_from_memory(reinterpret_cast<const unsigned char*>(contents), size, &width, &height, &channels, STBI_rgb_alpha);
+
+    return finishLoad(data, width, height, channels);
+}
+
+static SDL_Surface* finishLoad(unsigned char *data, int width, int height, int channels) {
     if (data == NULL) {
         fprintf(stderr, "Failed to load image: %s\n", stbi_failure_reason());
         return NULL;
