@@ -290,10 +290,7 @@ struct Dino {
   Dino() {
     collider.w = 24 << FP_SHIFT;
     collider.h = 24 << FP_SHIFT;
-    collider.x = 0;
-    collider.y = -collider.h / 2;
-    collider.lastX = collider.x;
-    collider.lastY = collider.y;
+    resetPosition();
 
     shadowCollider = collider;
   }
@@ -304,6 +301,13 @@ struct Dino {
 
   inline int duckHeight() {
     return 16 << FP_SHIFT;
+  }
+
+  inline void resetPosition() {
+    collider.x = 0;
+    collider.y = -collider.h / 2;
+    collider.lastX = collider.x;
+    collider.lastY = collider.y;
   }
 };
 
@@ -378,6 +382,7 @@ class DinoJump {
   bool running;
 
   int frame;
+  int stepFrame;
   int lastStepFrame;
   int lastObstacleId;
   int backgroundOffset;
@@ -779,17 +784,23 @@ void DinoJump::update() {
         score += difficulty * (-dino.collider.y < (8 << FP_SHIFT) ? 12 : 6) / 3;
       }
     }
-    int stepFrame = (frame % 24 >> 2);
-    dino.appearance.frameX = (duck ? 17 : 4) + stepFrame;
-    if (lastStepFrame != stepFrame && stepFrame % 3 == 0 &&
+
+    stepFrame += (speed << FP_SHIFT) / 20;
+    if (stepFrame >= (6 << FP_SHIFT)) {
+      stepFrame %= (6 << FP_SHIFT);
+    }
+    int dinoFrame = (stepFrame >> FP_SHIFT) % 6;  // shouldn't go over 6 in theory, but just to be safe
+    dino.appearance.frameX = (duck ? 17 : 4) + dinoFrame;
+    if (lastStepFrame != dinoFrame && dinoFrame % 3 == 0 &&
         (dino.collider.y+dino.collider.h/2) > (-1 << FP_SHIFT)) {
       mixer.playSound(&step);
     }
-    lastStepFrame = stepFrame;
+    lastStepFrame = dinoFrame;
   } else if (activity == Activity::stopping) {
     dino.appearance.frameX = 13 + (frame % 6 >> 1);
     if (stopEnd.elapsedSeconds() > 0.0f) {
       activity = Activity::playing;
+      dino.resetPosition();
       numObstacles = 0;
       score = 0;
     }

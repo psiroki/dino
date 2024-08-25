@@ -356,6 +356,7 @@ KeyHasher packFiles(vector<AssetFile> names) {
     sbe->numSlices = names.size();
     sbe->numTableEntries = tableSize;
     sbe->maxProbes = bestProbe;
+    sbe->flags = 0;
     uint32_t *table = sbe->getTable();
     BufferSlice *slices = sbe->getSlices();
     uint32_t *contentPos = sbe->getContents();
@@ -394,6 +395,20 @@ KeyHasher packFiles(vector<AssetFile> names) {
       }
     }
     cout << endl;
+    for (int i = 0; i < tableSize; ++i) {
+      if (~table[i*2]) {
+        uint32_t h = table[i*2];
+        BufferSlice *slice = slices + table[i*2+1];
+        uint32_t *p = reinterpret_cast<uint32_t*>(slice->ptr());
+        uint32_t size = (slice->sizeInBytes + 3) >> 2;
+        for (int j = 0; j < size; ++j) {
+          uint32_t op = p[j];
+          p[j] ^= h;
+          h += hasher.hash(op);
+        }
+      }
+    }
+    sbe->flags |= 1;
     ofstream output(baseDir+"/../.."+assets+"assets.bin", ofstream::binary);
     if (output.is_open()) {
       output.write(reinterpret_cast<char*>(start), bufferWordSize << 2);
