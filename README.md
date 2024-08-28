@@ -11,6 +11,17 @@ cmake ..
 make
 ```
 
+There is no packager for desktop. You can launch the game by executing `build/target/dino_jump` in the repo root.
+The desktop build requires the following files:
+
+```
+dino_jump
+assets/assets.bin
+assets/PC.layout
+```
+
+You can control the game with the arrow keys, Q/E sets the difficulty level.
+
 ### Cross compiling for other platforms
 
 The build system uses Docker images for cross compilations set up by custom makefiles. These can be found in GitHub repositories.

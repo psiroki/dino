@@ -1,0 +1,3 @@
+The repo contains low quality versions of the purchased assets.
+The high quality assets are in assets.bin.
+The tool will not repack assets.bin.

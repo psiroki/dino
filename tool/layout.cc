@@ -424,6 +424,10 @@ void packFiles() {
   for (const fs::directory_entry &entry: fs::directory_iterator(baseDir+"/../.."+assets)) {
     if (!entry.is_regular_file()) continue;
     fs::path path = entry.path();
+    if (path.filename().string() == "doNotPack.txt") {
+      cerr << "Found doNotPack.txt, bailing out" << endl;
+      return;
+    }
     string ext = path.extension().string();
     if (ext == ".layout" || ext == ".bin") continue;
     string ps = path.string();
