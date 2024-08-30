@@ -7,11 +7,22 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
 
 option(BITTBOY "Build for BittBoy/PocketGo compatibility" OFF)
 option(MIYOO "Build for Miyoo Mini compatibility" OFF)
+option(MIYOOA30 "Build for Miyoo A30 compatibility" OFF)
 option(RG35XX "Build for RG35XX compatibility" OFF)
 option(RG35XX22 "Build for RG35XX22 compatibility" OFF)
 option(WEB "Build for web (Emscripten)" OFF)
 
 message("Compiling for: ${CMAKE_SYSTEM_NAME}")
+
+if(NOT BITTBOY AND NOT MIYOO AND NOT MIYOOA30 AND NOT RG35XX AND NOT RG35XX22)
+  # Web is desktop
+  message(STATUS "Desktop mode")
+  add_definitions(-DDESKTOP)
+  set(DESKTOP ON)
+else()
+  set(DESKTOP OFF)
+endif()
+
 
 if (NOT ${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
   find_package(SDL REQUIRED)
@@ -24,8 +35,13 @@ if(BITTBOY)
 endif()
 
 if(MIYOO)
-  message(STATUS "Miyoo mode")
+  message(STATUS "Miyoo Mini mode")
   add_definitions(-DMIYOO)
+endif()
+
+if(MIYOOA30)
+  message(STATUS "Miyoo A30 mode")
+  add_definitions(-DMIYOOA30)
 endif()
 
 if(RG35XX)
@@ -37,15 +53,6 @@ if(RG35XX22)
   message(STATUS "RG35XX22 mode")
   add_definitions(-DRG35XX -DRG35XX22)
 endif()
-
-if(NOT RG35XX AND NOT MIYOO AND NOT BITTBOY)
-  message(STATUS "Desktop mode")
-  add_definitions(-DDESKTOP)
-  set(DESKTOP ON)
-else()
-  set(DESKTOP OFF)
-endif()
-
 
 if (${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
   set(main_target_dir ${CMAKE_CURRENT_BINARY_DIR}/web/)

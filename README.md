@@ -41,6 +41,7 @@ RG35XX a64 <path to cloned ARM64 git repo>
 RG35XX a32 <path to cloned MiyooMini git repo>
 RG35XX22 garlic <path to cloned RG35XX Garlic and Bittboy git repo>
 MIYOO mm <path to cloned MiyooMini git repo>
+MIYOOA30 ma30 <path to cloned MiyooMini git repo>
 WEB web <path to Emscripten.cmake>
 ```
 

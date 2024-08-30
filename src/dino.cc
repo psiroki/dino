@@ -21,9 +21,15 @@
 #endif
 
 #ifdef MIYOO
+#define MIYOO_AUDIO
 #include "miyoo_audio.hh"
 #define BLOWUP 1
 #define FLIP
+#endif
+
+#ifdef MIYOOA30
+#define BLOWUP 1
+#define VERTICAL
 #endif
 
 #ifdef RG35XX
@@ -32,7 +38,7 @@
 
 #if defined(DESKTOP)
 static const char * const LAYOUT_FILE = "PC";
-#elif defined(MIYOO)
+#elif defined(MIYOO) || defined(MIYOOA30)
 static const char * const LAYOUT_FILE = "MiyooMini";
 #elif defined(BITTBOY)
 static const char * const LAYOUT_FILE = "Bittboy";
@@ -449,7 +455,11 @@ void DinoJump::init() {
   uint32_t flags = SDL_DOUBLEBUF | SDL_HWSURFACE;
   std::cerr << "2.." << std::endl;
 #if BLOWUP
+#ifdef VERTICAL
+  realScreen = SDL_SetVideoMode(240 << BLOWUP, 320 << BLOWUP, 32, 0);
+#else
   realScreen = SDL_SetVideoMode(320 << BLOWUP, 240 << BLOWUP, 32, 0);
+#endif
   std::cerr << "2.1.." << std::endl;
   screen = SDL_CreateRGBSurface(0, 320, 240, 32,
       realScreen->format->Rmask, realScreen->format->Gmask, realScreen->format->Bmask,
@@ -917,6 +927,17 @@ void DinoJump::render() {
   uint32_t *tp = static_cast<uint32_t*>(realScreen->pixels);
   int32_t tpp = realScreen->pitch >> 2;
 
+#ifdef VERTICAL
+  for (int x = 0; x < realScreen->w; ++x) {
+    uint32_t *source = sp + (x >> BLOWUP) * spp;
+    uint32_t *target = tp + x + tpp * (realScreen->h - 1);
+    for (int y = 0; y < realScreen->h; ++y) {
+      *target = source[y >> BLOWUP] | 0xFF000000u;
+      target -= tpp;
+    }
+  }
+#else
+
 #ifdef FLIP
   uint32_t sw = screen->w;
   uint32_t sh = screen->h;
@@ -938,6 +959,7 @@ void DinoJump::render() {
     }
     tp += tpp;
   }
+#endif
   SDL_UnlockSurface(realScreen);
   SDL_UnlockSurface(screen);
   SDL_Flip(realScreen);

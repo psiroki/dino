@@ -26,7 +26,7 @@
   3. This notice may not be removed or altered from any source distribution.
 */
 
-#if defined(MIYOO)
+#if defined(MIYOO_AUDIO)
 #include "miyoo_audio.hh"
 
 #include <stdio.h>
@@ -88,19 +88,16 @@ public:
 };
 
 int MiyooAudioDevice::open() {
-#if defined(MIYOO)
   MI_S32 miret = 0;
   MI_S32 s32SetVolumeDb = 0;
   MI_S32 s32GetVolumeDb = 0;
   MI_SYS_ChnPort_t stAoChn0OutputPort0;
-#endif
 
   int optimizedSamples = 1024;  // don't care what the spec says
   mixlen = optimizedSamples * 2 * spec.channels;
   mixbuf = (Uint8 *) SDL_malloc(mixlen);
   if (!mixbuf) return -1;
 
-#if defined(MIYOO)
   stSetAttr.eBitwidth = E_MI_AUDIO_BIT_WIDTH_16;
   stSetAttr.eWorkmode = E_MI_AUDIO_MODE_I2S_MASTER;
   stSetAttr.u32FrmNum = 6;
@@ -140,20 +137,16 @@ int MiyooAudioDevice::open() {
   stAoChn0OutputPort0.u32ChnId = AoChn;
   stAoChn0OutputPort0.u32PortId = 0;
   MI_SYS_SetChnOutputPortDepth(&stAoChn0OutputPort0, 12, 13);
-#endif
   return 0;
 }
 
 void MiyooAudioDevice::close() {
   SDL_free(mixbuf);
-#if defined(MIYOO)
   MI_AO_DisableChn(AoDevId, AoChn);
   MI_AO_Disable(AoDevId);
-#endif
 }
 
 void MiyooAudioDevice::play() {
-#if defined(MIYOO)
   MI_AUDIO_Frame_t aoTestFrame;
   MI_S32 s32RetSendStatus = 0;
 
@@ -167,7 +160,6 @@ void MiyooAudioDevice::play() {
     usleep(((stSetAttr.u32PtNumPerFrm * 1000) / stSetAttr.eSamplerate - 10) * 1000);
   }
   while(s32RetSendStatus == MI_AO_ERR_NOBUF);
-#endif
 }
 
 static MiyooAudioDevice dev;
