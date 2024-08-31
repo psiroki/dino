@@ -16,5 +16,5 @@ PS1=anything_but_empty_string
 PROJECT_ROOT="$(dirname "$0")/.."
 cd $PROJECT_ROOT/$1
 
-cmake $PROJECT_ROOT "-D$2=ON"
+cmake $PROJECT_ROOT "-D$2=ON" -DCMAKE_BUILD_TYPE=Release
 make

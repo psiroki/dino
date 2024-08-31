@@ -456,7 +456,11 @@ void DinoJump::init() {
   std::cerr << "2.." << std::endl;
 #if BLOWUP
 #ifdef VERTICAL
-  realScreen = SDL_SetVideoMode(240 << BLOWUP, 320 << BLOWUP, 32, 0);
+#ifdef MIYOOA30
+  realScreen = SDL_SetVideoMode(240 << BLOWUP, 320 << BLOWUP, 32, SDL_HWSURFACE | SDL_FULLSCREEN | SDL_DOUBLEBUF);
+  SDL_Flip(realScreen);
+#endif
+  realScreen = SDL_SetVideoMode(240 << BLOWUP, 320 << BLOWUP, 32, SDL_HWSURFACE | SDL_FULLSCREEN);
 #else
   realScreen = SDL_SetVideoMode(320 << BLOWUP, 240 << BLOWUP, 32, 0);
 #endif
