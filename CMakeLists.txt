@@ -37,7 +37,7 @@ endif()
 
 if(MIYOO)
   message(STATUS "Miyoo Mini mode")
-  add_definitions(-DMIYOO)
+  add_definitions(-DMIYOO -DMIYOO_AUDIO)
 endif()
 
 if(MIYOOA30)

@@ -18,7 +18,11 @@ trap trapERR ERR
 
 SCRIPT_DIR="$(dirname $0)"
 PROJECT_ROOT="$(realpath "$SCRIPT_DIR/..")"
-ONLY_TARGET="$1"
+if [ "$#" -gt 0 ]; then
+  ONLY_TARGET="$1"
+else
+  ONLY_TARGET=
+fi
 
 while read -r line && [ -n "$line" ]; do
   TAG="$(echo $line | cut -d ' ' -f 1)"

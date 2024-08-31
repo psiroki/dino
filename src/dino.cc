@@ -21,7 +21,6 @@
 #endif
 
 #ifdef MIYOO
-#define MIYOO_AUDIO
 #include "miyoo_audio.hh"
 #define BLOWUP 1
 #define FLIP
