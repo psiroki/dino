@@ -77,6 +77,7 @@ KeyDef bittboyLayout[] = {  // PocketGo/Bittboy
   KEY(SDLK_RETURN), KEY(SDLK_ESCAPE), KEY(SDLK_RCTRL),
 };
 
+// muOS layout
 // up, down, left, right, north, east, south, west,
 // r1, l1, r2, l2, start, select, menu
 KeyDef rg35xxLayout[] = {
@@ -91,12 +92,21 @@ KeyDef rg35xx22Layout[] = {
   BUTTON(6), BUTTON(5), BUTTON(10), BUTTON(4), BUTTON(8), BUTTON(7), BUTTON(9),
 };
 
+// RG35XX 2022 Batocera layout
+// up, down, left, right, north, east, south, west,
+// r1, l1, r2, l2, start, select, menu
+KeyDef rg35xx22bLayout[] = {
+  BUTTON(13), BUTTON(14), BUTTON(15), BUTTON(16), BUTTON(2), BUTTON(0), BUTTON(1), BUTTON(3),
+  BUTTON(5), BUTTON(4), BUTTON(7), BUTTON(6), BUTTON(9), BUTTON(8), BUTTON(10),
+};
+
 const InputLayout layouts[] = {
   LAYOUT("PC", pcLayout),
   LAYOUT("MiyooMini", miyooLayout),
   LAYOUT("Bittboy", bittboyLayout),
   LAYOUT("RG35XX", rg35xxLayout),
   LAYOUT("RG35XX22", rg35xx22Layout),
+  LAYOUT("RG35XX22B", rg35xx22bLayout),
 };
 const int numLayouts = sizeof(layouts) / sizeof(*layouts);
 

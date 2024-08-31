@@ -10,11 +10,12 @@ option(MIYOO "Build for Miyoo Mini compatibility" OFF)
 option(MIYOOA30 "Build for Miyoo A30 compatibility" OFF)
 option(RG35XX "Build for RG35XX compatibility" OFF)
 option(RG35XX22 "Build for RG35XX22 compatibility" OFF)
+option(RG35XX22B "Build for RG35XX22B (Batocera) compatibility" OFF)
 option(WEB "Build for web (Emscripten)" OFF)
 
 message("Compiling for: ${CMAKE_SYSTEM_NAME}")
 
-if(NOT BITTBOY AND NOT MIYOO AND NOT MIYOOA30 AND NOT RG35XX AND NOT RG35XX22)
+if(NOT BITTBOY AND NOT MIYOO AND NOT MIYOOA30 AND NOT RG35XX AND NOT RG35XX22 AND NOT RG35XX22B)
   # Web is desktop
   message(STATUS "Desktop mode")
   add_definitions(-DDESKTOP)
@@ -52,6 +53,11 @@ endif()
 if(RG35XX22)
   message(STATUS "RG35XX22 mode")
   add_definitions(-DRG35XX -DRG35XX22)
+endif()
+
+if(RG35XX22B)
+  message(STATUS "RG35XX22B mode")
+  add_definitions(-DRG35XX -DRG35XX22B)
 endif()
 
 if (${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")

@@ -42,9 +42,14 @@ static const char * const LAYOUT_FILE = "PC";
 static const char * const LAYOUT_FILE = "MiyooMini";
 #elif defined(BITTBOY)
 static const char * const LAYOUT_FILE = "Bittboy";
+#elif defined(RG35XX22B)
+#pragma message "Using layout RG35XX22B"
+static const char * const LAYOUT_FILE = "RG35XX22B";
 #elif defined(RG35XX22)
+#pragma message "Using layout RG35XX22"
 static const char * const LAYOUT_FILE = "RG35XX22";
 #elif defined(RG35XX)
+#pragma message "Using layout RG35XX"
 static const char * const LAYOUT_FILE = "RG35XX";
 #else
 static const char * const LAYOUT_FILE = nullptr;
@@ -421,6 +426,7 @@ class DinoJump {
   }
   void initAudio();
   void initAssets();
+  bool loadInputLayout(const char *fn);
   void audioCallback(uint8_t *stream, int len);
 public:
   inline DinoJump():
@@ -484,19 +490,10 @@ void DinoJump::init() {
   if (LAYOUT_FILE) {
     char path[256];
     snprintf(path, sizeof(path), "assets/%s.layout", LAYOUT_FILE);
-    std::cerr << "Using " << path << " for input layout" << std::endl;
-    std::ifstream file(path, std::ios::binary);
-    if (file.is_open()) {
-      file.read(inputLayoutBytes, sizeof(inputLayoutBytes));
-
-      if (file.gcount() >= sizeof(inputLayoutBytes)) {
-          std::cerr << "Layout file is too big" << std::endl;
-      }
-      file.close();
-    } else {
-      std::cerr << "Could not load layout file" << std::endl;
+    if (!loadInputLayout(path)) {
+      // try loading input.layout instead
+      loadInputLayout("assets/input.layout");
     }
-    inputLayout.setTable(inputLayoutBytes);
   }
 
   jump.generateMono(10000, [](uint32_t index) -> int {
@@ -534,6 +531,23 @@ void DinoJump::init() {
   initAssets();
 }
 
+bool DinoJump::loadInputLayout(const char *path) {
+    std::cerr << "Using " << path << " for input layout" << std::endl;
+    std::ifstream file(path, std::ios::binary);
+    if (file.is_open()) {
+      file.read(inputLayoutBytes, sizeof(inputLayoutBytes));
+
+      if (file.gcount() >= sizeof(inputLayoutBytes)) {
+          std::cerr << "Layout file is too big" << std::endl;
+      }
+      inputLayout.setTable(inputLayoutBytes);
+      file.close();
+      return true;
+    } else {
+      std::cerr << "Could not load layout file " << path << std::endl;
+      return false;
+    }
+}
 
 void DinoJump::initAssets() {
   std::ifstream packFile("assets/assets.bin", std::ifstream::binary | std::ifstream::ate);
