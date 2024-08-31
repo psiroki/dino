@@ -712,8 +712,15 @@ void DinoJump::handleControlEvent(Control control, bool down) {
       --jumpsLeft;
       mixer.playSound(&jump);
     }
-    if (control == Control::R1 || control == Control::R2) ++difficulty;
-    if ((control == Control::L1 || control == Control::L2) && difficulty > 1) --difficulty;
+    if (control == Control::R1 || control == Control::R2 ||
+        (controlState[Control::SELECT] || controlState[Control::START]) && control == Control::RIGHT) {
+      ++difficulty;
+    }
+    if ((control == Control::L1 || control == Control::L2 ||
+        (controlState[Control::SELECT] || controlState[Control::START]) && control == Control::LEFT) &&
+        difficulty > 1) {
+      --difficulty;
+    }
   } else {
     if (!controlState[static_cast<int>(control)]) return;
     controlState[static_cast<int>(control)] = false;

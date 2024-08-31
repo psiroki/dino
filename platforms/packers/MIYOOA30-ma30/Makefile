@@ -1,5 +1,5 @@
 PROJECT_ROOT ?= $(shell realpath ../../..)
-BUILD_DIR ?= $(PROJECT_ROOT)/build/platforms/a64
+BUILD_DIR ?= $(PROJECT_ROOT)/build/platforms/ma30
 ASSETS_DIR := $(PROJECT_ROOT)/assets
 PACKER_DIR := $(shell pwd)
 
