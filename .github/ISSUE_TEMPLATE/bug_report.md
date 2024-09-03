@@ -14,7 +14,7 @@ A clear and concise description of what the bug is.
 Steps to reproduce the behavior:
 1. Set difficulty level to '...'
 2. Perform '....'
-3. See error
+3. See error (description of the observed behavior)
 
 **Expected behavior**
 A clear and concise description of what you expected to happen.
