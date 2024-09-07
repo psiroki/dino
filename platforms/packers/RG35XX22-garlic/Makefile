@@ -1,5 +1,6 @@
 PROJECT_ROOT ?= $(shell realpath ../../..)
 BUILD_DIR ?= $(PROJECT_ROOT)/build/platforms/garlic
+PLATFORMS_DIR ?= $(shell realpath "`dirname "$(BUILD_DIR)"`")
 ASSETS_DIR := $(PROJECT_ROOT)/assets
 PACKER_DIR := $(shell pwd)
 
@@ -9,7 +10,7 @@ SD_ROOT := $(BUILD_DIR)/SD
 BINARY_DIR_SD := $(SD_ROOT)/Roms/PORTS/dinojump
 ASSET_DIR_SD := $(BINARY_DIR_SD)/assets
 SHORTCUT_DIR_SD := $(SD_ROOT)/Roms/PORTS
-ZIP_PACKAGE := $(BUILD_DIR)/dino_jump_rg35xx_garlic.zip
+ZIP_PACKAGE := $(PLATFORMS_DIR)/dino_jump_rg35xx_garlic.zip
 
 .PHONY: package
 

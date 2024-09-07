@@ -1,5 +1,6 @@
 PROJECT_ROOT ?= $(shell realpath ../../..)
 BUILD_DIR ?= $(PROJECT_ROOT)/build/platforms/bb
+PLATFORMS_DIR ?= $(shell realpath "`dirname "$(BUILD_DIR)"`")
 ASSETS_DIR := $(PROJECT_ROOT)/assets
 PACKER_DIR := $(shell pwd)
 
@@ -10,7 +11,7 @@ BINARY_DIR_SD := $(SD_ROOT)/games/dinojump
 ASSET_DIR_SD := $(BINARY_DIR_SD)/assets
 SHORTCUT_DIR_SD := $(SD_ROOT)/gmenu2x/sections/games
 ICONS_DIR_SD := $(SD_ROOT)/gmenu2x/skins/Default/ICONS
-ZIP_PACKAGE := $(BUILD_DIR)/dino_jump_bb_cfw.zip
+ZIP_PACKAGE := $(PLATFORMS_DIR)/dino_jump_bb_cfw.zip
 
 .PHONY: package
 
