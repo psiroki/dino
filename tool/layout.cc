@@ -428,13 +428,14 @@ KeyHasher packFiles(vector<AssetFile> names) {
   return bestHasher;
 }
 
-void packFiles() {
+void packFiles(bool force) {
   cout << "Packing files..." << endl;
   vector<AssetFile> files;
   for (const fs::directory_entry &entry: fs::directory_iterator(baseDir+"/../.."+assets)) {
     if (!entry.is_regular_file()) continue;
     fs::path path = entry.path();
     if (path.filename().string() == "doNotPack.txt") {
+      if (force) continue;
       cerr << "Found doNotPack.txt, bailing out" << endl;
       return;
     }
@@ -458,9 +459,13 @@ void packFiles() {
 int main(int argc, const char **argv) {
   fs::path fsPath(argv[0]);
   baseDir = fsPath.parent_path().string();
-  string arg1 = argv[1] ? string(argv[1]) : "";
-  if (!arg1.length() || arg1 == "layouts") layoutAll();
-  if (!arg1.length() || arg1 == "pack") packFiles();
+  string lastArg = argc > 1 ? string(argv[argc-1]) : "";
+  bool force = false;
+  for (int i = 1; i < argc; ++i) {
+    if (strncmp(argv[i], "-f", 3) == 0) force = true;
+  }
+  if (!lastArg.length() || lastArg == "layouts") layoutAll();
+  if (!lastArg.length() || lastArg == "pack") packFiles(force);
   return 0;
 }
 

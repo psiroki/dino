@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <string>
 #include <SDL/SDL.h>
 
 #include "util.hh"
@@ -8,6 +9,28 @@
 struct BufferView {
   void *buffer;
   uint32_t sizeInBytes;
+
+  inline uint8_t* atOffset(uint32_t offset) {
+    return reinterpret_cast<uint8_t*>(buffer) + offset;
+  }
+
+  inline const uint8_t* atOffset(uint32_t offset) const {
+    return reinterpret_cast<const uint8_t*>(buffer) + offset;
+  }
+
+  inline void allocateAndCopy(const BufferView &other) {
+    buffer = new char[other.sizeInBytes];
+    sizeInBytes = other.sizeInBytes;
+    memcpy(buffer, other.buffer, sizeInBytes);
+  }
+
+  inline void release() {
+    if (buffer) {
+      delete[] reinterpret_cast<char*>(buffer);
+      buffer = nullptr;
+      sizeInBytes = 0;
+    }
+  }
 };
 
 struct BufferSlice {

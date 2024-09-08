@@ -76,7 +76,7 @@ set(tool_test_target_dir ${CMAKE_CURRENT_BINARY_DIR}/tool/)
 message(STATUS "Test & tool directory: ${tool_test_target_dir}")
 make_directory(${tool_test_target_dir})
 
-file(GLOB_RECURSE sources src/*.cc)
+file(GLOB_RECURSE sources src/*.cc src/*.c)
 
 
 if (NOT ${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")

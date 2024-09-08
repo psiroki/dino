@@ -11,6 +11,7 @@
 #include "input.hh"
 #include "perftext.hh"
 #include "pack.hh"
+#include "fda.h"
 
 #ifdef __EMSCRIPTEN__
 // no blowup
@@ -89,11 +90,16 @@ public:
   }
 };
 
-struct SoundBuffer {
+struct SoundBufferView {
   uint32_t *samples;
   uint32_t numSamples;
 
-  inline SoundBuffer(): samples(0), numSamples(0) { }
+  inline SoundBufferView(): samples(0), numSamples(0) { }
+};
+
+struct SoundBuffer: public SoundBufferView {
+
+  inline SoundBuffer(): SoundBufferView() { }
   ~SoundBuffer();
 
   void resize(uint32_t newNumSamples);
@@ -121,7 +127,8 @@ void SoundBuffer::generateMono(uint32_t newNumSamples, MonoSampleGenerator gen) 
 }
 
 struct MixChannel {
-  const SoundBuffer *buffer;
+  const SoundBufferView *buffer;
+  uint32_t playId;
   uint64_t timeStart;
 
   bool isOver(uint64_t audioTime) {
@@ -132,7 +139,9 @@ struct MixChannel {
 class Mixer {
   static const int maxNumChannels = 16;
   static const int soundQueueSize = 16;
+  static const int donePlayingQueueSize = 64;
 
+  uint32_t playIdCounter;
   uint64_t audioTime[4];
   Timestamp times[4];
   MixChannel soundsToAdd[soundQueueSize];
@@ -141,10 +150,24 @@ class Mixer {
   MixChannel channels[maxNumChannels];
   int numChannelsUsed;
   int currentTimes;
+  uint32_t donePlaying[donePlayingQueueSize];
+  int donePlayingRead;
+  int donePlayingWrite;
 public:
-  inline Mixer(): audioTime { 0, 0, 0, 0 }, currentTimes(0), soundRead(0), soundWrite(0) { }
+  inline Mixer(): audioTime { 0, 0, 0, 0 }, currentTimes(0), soundRead(0), soundWrite(0), donePlayingRead(0), donePlayingWrite(0) { }
   void audioCallback(uint8_t *stream, int len);
-  void playSound(const SoundBuffer *buffer);
+  uint32_t playSound(const SoundBufferView *buffer);
+  uint32_t playSoundAt(const SoundBufferView *buffer, uint32_t at);
+  inline uint64_t getAudioTime() {
+    return audioTime[currentTimes];
+  }
+  inline uint64_t getAudioTimeNow() {
+    int w = currentTimes;
+    return audioTime[w] + times[w].elapsedSeconds() * 44100;
+  }
+  /// Returns the next playId that has just finished, or 0
+  /// if no more are available (0 will never be used as an id)
+  uint32_t nextDonePlaying();
 };
 
 void Mixer::audioCallback(uint8_t *stream, int len) {
@@ -163,6 +186,8 @@ void Mixer::audioCallback(uint8_t *stream, int len) {
   // remove finished channels
   for (int i = numChannelsUsed - 1; i >= 0; --i) {
     if (channels[i].isOver(time)) {
+      donePlaying[donePlayingWrite] = channels[i].playId;
+      donePlayingWrite = (donePlayingWrite+1) & (donePlayingQueueSize - 1);
       if (i < numChannelsUsed - 1) {
         // swap with last
         channels[i] = channels[numChannelsUsed - 1];
@@ -192,19 +217,114 @@ void Mixer::audioCallback(uint8_t *stream, int len) {
     }
     for (int k = 0; k < 2; ++k) {
       if (mix[k] > 32767) mix[k] = 32767;
-      if (mix[k] < -32768) mix[k] = -32768 & 0xffff;
+      if (mix[k] < -32768) mix[k] = -32768;
     }
-    *s++ = (mix[1] << 16) | mix[0];
+    *s++ = (mix[1] << 16) | (mix[0] & 0xffff);
     ++time;
   }
 }
 
-void Mixer::playSound(const SoundBuffer *buffer) {
+uint32_t Mixer::playSound(const SoundBufferView *buffer) {
+  return playSoundAt(buffer, getAudioTimeNow());
+}
+
+uint32_t Mixer::playSoundAt(const SoundBufferView *buffer, uint32_t at) {
   MixChannel &ch(soundsToAdd[soundWrite]);
   ch.buffer = buffer;
-  int w = currentTimes;
-  ch.timeStart = audioTime[w] + times[w].elapsedSeconds() * 44100;
+  ch.playId = ++playIdCounter;
+  if (ch.playId == 0) ch.playId = ++playIdCounter;
+  ch.timeStart = at;
   soundWrite = (soundWrite + 1) & (soundQueueSize - 1);
+  return ch.playId;
+}
+
+uint32_t Mixer::nextDonePlaying() {
+  if (donePlayingRead == donePlayingWrite) return 0;
+  uint32_t result = donePlaying[donePlayingRead];
+  donePlayingRead = (donePlayingRead+1) & (donePlayingQueueSize - 1);
+  return result;
+}
+
+class FdaStreamer {
+  Mixer &mixer;
+  BufferView compressed;
+  SoundBuffer buffers[2];
+  SoundBufferView views[2];
+  uint32_t compressedPosition;
+  uint32_t pendingPlayIds[2];
+  uint64_t timeNext;
+  uint32_t samplesPerFrame;
+  fda_desc fda;
+
+  void fillBuffer(int index);
+public:
+  inline FdaStreamer(Mixer &mixer):
+      mixer(mixer),
+      compressed { .buffer = nullptr, .sizeInBytes = 0 },
+      timeNext(0),
+      samplesPerFrame(0) {
+    buffers[0].resize(5120*4);
+    buffers[1].resize(5120*4);
+  }
+
+  void reset(const BufferView &comp);
+  void startPlaying();
+  void handleDone(uint32_t playId);
+};
+
+void FdaStreamer::fillBuffer(int index) {
+  SoundBuffer &buf(buffers[index]);
+  views[index] = buf;
+  int16_t *start = reinterpret_cast<int16_t*>(buf.samples);
+  int16_t *end = reinterpret_cast<int16_t*>(buf.samples + buf.numSamples);
+  int samplesLeft = buf.numSamples;
+  while (start < end && samplesLeft >= samplesPerFrame) {
+    if (compressedPosition >= compressed.sizeInBytes) {
+      compressedPosition = fda_decode_header(compressed.atOffset(0), compressed.sizeInBytes, &fda);
+    }
+    unsigned numSamples = samplesLeft;
+    uint8_t *p = compressed.atOffset(compressedPosition);
+    uint32_t bytesLeft = compressed.sizeInBytes - compressedPosition;
+    unsigned frameSize = fda_decode_frame(p, bytesLeft, &fda, start, &numSamples);
+    if (!samplesPerFrame) samplesPerFrame = numSamples;
+    if (!frameSize) {
+      compressedPosition = compressed.sizeInBytes;
+    } else {
+      compressedPosition += frameSize;
+    }
+    start += numSamples * 2;
+    samplesLeft -= numSamples;
+  }
+  if (samplesLeft) {
+    std::cout << "Samples left: " << samplesLeft << std::endl;
+    views[index].numSamples = buf.numSamples - samplesLeft;
+  }
+}
+
+void FdaStreamer::reset(const BufferView &comp) {
+  pendingPlayIds[0] = pendingPlayIds[1] = 0;
+  compressed = comp;
+}
+
+void FdaStreamer::startPlaying() {
+  compressedPosition = fda_decode_header(compressed.atOffset(0), compressed.sizeInBytes, &fda);
+  fillBuffer(0);
+  fillBuffer(1);
+  timeNext = mixer.getAudioTimeNow();
+  for (int i = 0; i < 2; ++i) {
+    pendingPlayIds[i] = mixer.playSoundAt(views + i, timeNext);
+    timeNext += views[i].numSamples;
+  }
+}
+
+void FdaStreamer::handleDone(uint32_t playId) {
+  for (int i = 0; i < 2; ++i) {
+    if (playId == pendingPlayIds[i]) {
+      fillBuffer(i);
+      pendingPlayIds[i] = mixer.playSoundAt(views + i, timeNext);
+      timeNext += views[i].numSamples;
+    }
+  }
 }
 
 struct PixelPtr {
@@ -386,6 +506,8 @@ class DinoJump {
   SoundBuffer step;
   SoundBuffer collide;
   Mixer mixer;
+  BufferView compressedMusic;
+  FdaStreamer music;
   SDL_AudioSpec desiredAudioSpec;
   SDL_AudioSpec actualAudioSpec;
 
@@ -444,12 +566,19 @@ public:
       lastObstacleId(-1),
       difficulty(1),
       score(0),
-      overlay(320, 240, 0) {
+      overlay(320, 240, 0),
+      music(mixer),
+      compressedMusic { .buffer = nullptr, .sizeInBytes = 0 } {
   }
+  ~DinoJump();
   void init();
   void run();
   void loop();
 };
+
+DinoJump::~DinoJump() {
+  compressedMusic.release();
+}
 
 void DinoJump::init() {
   if (screen) return;
@@ -601,6 +730,11 @@ void DinoJump::initAssets() {
 
   SDL_SetAlpha(shadow, SDL_SRCALPHA, 255);
   SDL_SetAlpha(wideShadow, SDL_SRCALPHA, 255);
+
+  BufferView musicView = bin->lookup("assets/80sloop.fda");
+  compressedMusic.allocateAndCopy(musicView);
+  music.reset(compressedMusic);
+  music.startPlaying();
 }
 
 
@@ -611,7 +745,7 @@ void DinoJump::initAudio() {
   desiredAudioSpec.freq = 44100;
   desiredAudioSpec.format = AUDIO_S16;
   desiredAudioSpec.channels = 2;
-  desiredAudioSpec.samples = 2048;
+  desiredAudioSpec.samples = 512;
   desiredAudioSpec.userdata = this;
   desiredAudioSpec.callback = callAudioCallback;
   memcpy(&actualAudioSpec, &desiredAudioSpec, sizeof(actualAudioSpec));
@@ -838,6 +972,10 @@ void DinoJump::update() {
       numObstacles = 0;
       score = 0;
     }
+  }
+  uint32_t donePlaying;
+  while (donePlaying = mixer.nextDonePlaying()) {
+    music.handleDone(donePlaying);
   }
   ++frame;
 }
