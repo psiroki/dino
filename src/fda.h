@@ -5,7 +5,7 @@ SPDX-License-Identifier: MIT
 
 FDA - The "Fairly Decent Audio" format for fast, lossy audio compression
 
-Basically the same as FDA, but a bit more pragmatic: no CPU cycles spent
+Basically the same as QOA, but a bit more pragmatic: no CPU cycles spent
 on byte shuffling, it uses little endian, because it is the standard
 endianness virtually everywhere.
 
