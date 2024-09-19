@@ -321,10 +321,12 @@ Window& Window::operator<<(const setw &newWidth) {
 
 }
 
-PerfTextOverlay::PerfTextOverlay(int pixelWidth, int pixelHeight, int orientation):
+PerfTextOverlay::PerfTextOverlay(int pixelWidth, int pixelHeight, int orientation, bool shadow):
   numColumns((pixelWidth >> 3) & ~3),
-  numRows(pixelHeight >> 3),
+  numRows((pixelHeight - (shadow ? 1 : 0)) >> 3),
   color(UINT32_MAX),
+  shadowColor(0),
+  shadow(shadow),
   orientation(orientation) {
   numChars = numRows * numColumns;
   buffer = new char[numChars];
@@ -366,6 +368,7 @@ void PerfTextOverlay::drawOverlayNormal(SDL_Surface *surface) {
           for (int x = 0; x < 8; ++x) {
             if (f&1) {
               *line = color;
+              if (shadow) line[pixelPitch] = shadowColor;
             }
             f >>= 1;
             ++line;
@@ -405,6 +408,7 @@ void PerfTextOverlay::drawOverlay180(SDL_Surface *surface) {
           for (int x = 0; x < 8; ++x) {
             if (f&1) {
               *line = color;
+              if (shadow) line[-pixelPitch] = shadowColor;
             }
             f >>= 1;
             --line;

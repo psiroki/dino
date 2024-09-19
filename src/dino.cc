@@ -11,6 +11,7 @@
 #include "input.hh"
 #include "perftext.hh"
 #include "pack.hh"
+#include "menu.hh"
 
 #ifdef __EMSCRIPTEN__
 // no blowup
@@ -349,7 +350,7 @@ void Obstacle::reset(int width, int height) {
   id = ++idCounter;
 }
 
-enum class Activity { playing, stopping };
+enum class Activity { playing, stopping, menu };
 
 void callAudioCallback(void *userdata, uint8_t *stream, int len);
 
@@ -365,7 +366,7 @@ struct ControlState {
   }
 };
 
-class DinoJump {
+class DinoJump: private GameSettings {
   friend void callAudioCallback(void *userdata, uint8_t *stream, int len);
 #if BLOWUP
   SDL_Surface *realScreen;
@@ -409,9 +410,15 @@ class DinoJump {
   int numObstacles;
   int difficulty;
   int score;
+  int bestScore;
   Activity activity;
   Timestamp stopEnd;
 
+  Menu menu;
+
+  virtual int getDifficulty() override;
+  virtual void setDifficulty(int val) override;
+  void resetGame();
   void drawCollider(const Collider &c, const Appearance &appearance);
   void drawGround();
   void render();
@@ -426,7 +433,6 @@ class DinoJump {
   void initAudio();
   void initAssets();
   bool loadInputLayout(const char *fn);
-  void audioCallback(uint8_t *stream, int len);
 public:
   inline DinoJump():
       screen(nullptr),
@@ -444,12 +450,24 @@ public:
       lastObstacleId(-1),
       difficulty(1),
       score(0),
-      overlay(320, 240, 0) {
+      bestScore(0),
+      overlay(320, 240, 0, true),
+      menu(overlay, *this) {
   }
   void init();
   void run();
   void loop();
 };
+
+int DinoJump::getDifficulty() {
+  return difficulty;
+}
+
+void DinoJump::setDifficulty(int val) {
+  if (val < 1) val = 1;
+  difficulty = val;
+}
+
 
 void DinoJump::init() {
   if (screen) return;
@@ -719,28 +737,74 @@ void DinoJump::handleControlEvent(Control control, bool down) {
   if (down) {
     if (controlState[static_cast<int>(control)]) return;
     controlState[static_cast<int>(control)] = true;
-    if (control == Control::MENU || controlState[Control::START] && controlState[Control::SELECT]) running = false;
-    if ((control == Control::UP || control == Control::SOUTH || control == Control::EAST) && !duck && jumpsLeft > 0) {
-      dino.collider.lastY = dino.collider.y + (12 << FP_SHIFT);
-      --jumpsLeft;
-      mixer.playSound(&jump);
+    if (control == Control::MENU || control == Control::START && activity != Activity::menu) {
+      if (activity == Activity::stopping) {
+        resetGame();
+      }
+      if (activity != Activity::menu) {
+        activity = Activity::menu;
+      } else {
+        duck = false;
+        activity = Activity::playing;
+      }
     }
-    if (control == Control::R1 || control == Control::R2 ||
-        (controlState[Control::SELECT] || controlState[Control::START]) && control == Control::RIGHT) {
-      ++difficulty;
-    }
-    if ((control == Control::L1 || control == Control::L2 ||
-        (controlState[Control::SELECT] || controlState[Control::START]) && control == Control::LEFT) &&
-        difficulty > 1) {
-      --difficulty;
+    if (controlState[Control::START] && controlState[Control::SELECT]) running = false;
+    if (activity == Activity::menu) {
+      switch (control) {
+        case Control::DOWN:
+          menu.moveVertical(1);
+          break;
+        case Control::UP:
+          menu.moveVertical(-1);
+          break;
+        case Control::LEFT:
+          menu.moveHorizontal(-1);
+          break;
+        case Control::RIGHT:
+          menu.moveHorizontal(1);
+          // no break here on purpose
+        case Control::EAST:
+        case Control::START:
+          switch (menu.execute()) {
+            case Command::quit:
+              running = false;
+              break;
+            case Command::resume:
+              activity = Activity::playing;
+              break;
+          }
+          break;
+      }
+    } else {
+      if ((control == Control::UP || control == Control::SOUTH || control == Control::EAST) && !duck && jumpsLeft > 0) {
+        dino.collider.lastY = dino.collider.y + (12 << FP_SHIFT);
+        --jumpsLeft;
+        mixer.playSound(&jump);
+      }
+      if (control == Control::R1 || control == Control::R2 ||
+          (controlState[Control::SELECT] || controlState[Control::START]) && control == Control::RIGHT) {
+        ++difficulty;
+      }
+      if ((control == Control::L1 || control == Control::L2 ||
+          (controlState[Control::SELECT] || controlState[Control::START]) && control == Control::LEFT) &&
+          difficulty > 1) {
+        --difficulty;
+      }
     }
   } else {
     if (!controlState[static_cast<int>(control)]) return;
     controlState[static_cast<int>(control)] = false;
   }
-  if (control == Control::DOWN || control == Control::WEST) {
+  if ((!down || activity == Activity::playing) &&
+      (control == Control::DOWN || control == Control::WEST)) {
     duck = down;
   }
+}
+
+void DinoJump::resetGame() {
+  dino.resetPosition();
+  numObstacles = 0;
+  score = 0;
 }
 
 void DinoJump::update() {
@@ -816,6 +880,7 @@ void DinoJump::update() {
       } else if (c.overlaps(dino.shadowCollider) && obstacles[i].id != lastObstacleId) {
         lastObstacleId = obstacles[i].id;
         score += difficulty * (-dino.collider.y < (8 << FP_SHIFT) ? 12 : 6) / 3;
+        if (score > bestScore) bestScore = score;
       }
     }
 
@@ -834,10 +899,10 @@ void DinoJump::update() {
     dino.appearance.frameX = 13 + (frame % 6 >> 1);
     if (stopEnd.elapsedSeconds() > 0.0f) {
       activity = Activity::playing;
-      dino.resetPosition();
-      numObstacles = 0;
-      score = 0;
+      resetGame();
     }
+  } else if (activity == Activity::menu) {
+    // it's like pause
   }
   ++frame;
 }
@@ -942,6 +1007,11 @@ void DinoJump::render() {
   overlay.write(overlay.getNumColumns() - strnlen(str, sizeof(str)) - 1, 1, str);
   snprintf(str, sizeof(str), "Score: %d", score);
   overlay.write(1, 1, str);
+  snprintf(str, sizeof(str), " Best: %d", bestScore);
+  overlay.write(1, 2, str);
+  if (activity == Activity::menu) {
+    menu.render();
+  }
   overlay.drawOverlay(screen);
 #if BLOWUP
   SDL_LockSurface(realScreen);

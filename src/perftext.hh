@@ -15,16 +15,22 @@ class PerfTextOverlay {
   int numChars;
   int numRows;
   uint32_t color;
+  uint32_t shadowColor;
   int orientation;
+  bool shadow;
 
   void drawOverlayNormal(SDL_Surface *surface);
   void drawOverlay180(SDL_Surface *surface);
 public:
-  PerfTextOverlay(int pixelWidth, int pixelHeight, int orientation);
+  PerfTextOverlay(int pixelWidth, int pixelHeight, int orientation, bool shadow);
   ~PerfTextOverlay();
 
   inline void setColor(uint32_t newColor) {
     color = newColor;
+  }
+
+  inline void setShadowColor(uint32_t newColor) {
+    shadowColor = newColor;
   }
 
   inline char* getBuffer() {
