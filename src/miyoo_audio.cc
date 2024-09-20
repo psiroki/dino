@@ -93,7 +93,7 @@ int MiyooAudioDevice::open() {
   MI_S32 s32GetVolumeDb = 0;
   MI_SYS_ChnPort_t stAoChn0OutputPort0;
 
-  int optimizedSamples = 1024;  // don't care what the spec says
+  int optimizedSamples = 256;  // don't care what the spec says
   mixlen = optimizedSamples * 2 * spec.channels;
   mixbuf = (Uint8 *) SDL_malloc(mixlen);
   if (!mixbuf) return -1;
@@ -157,7 +157,7 @@ void MiyooAudioDevice::play() {
   aoTestFrame.apVirAddr[1] = nullptr;
   do {
     s32RetSendStatus = MI_AO_SendFrame(AoDevId, AoChn, &aoTestFrame, 1);
-    usleep(((stSetAttr.u32PtNumPerFrm * 1000) / stSetAttr.eSamplerate - 10) * 1000);
+    usleep(((stSetAttr.u32PtNumPerFrm * 1000) / stSetAttr.eSamplerate - 3) * 1000);
   }
   while(s32RetSendStatus == MI_AO_ERR_NOBUF);
 }
