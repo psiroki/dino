@@ -1,9 +1,10 @@
 #pragma once
 
-#include <SDL/SDL.h>
 #include <memory>
 #include <string.h>
 #include <stdint.h>
+
+#include "platform.hh"
 
 namespace perf { class Window; }
 

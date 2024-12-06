@@ -1,4 +1,3 @@
-#include <SDL/SDL.h>
 #include <iostream>
 #include <fstream>
 
@@ -6,6 +5,7 @@
 #include <emscripten.h>
 #endif
 
+#include "platform.hh"
 #include "util.hh"
 #include "image.hh"
 #include "input.hh"
@@ -37,21 +37,25 @@
 #define BLOWUP 1
 #endif
 
+#ifndef BLOWUP
+#define BLOWUP 0
+#endif
+
 #if defined(DESKTOP)
-static const char * const LAYOUT_FILE = "PC";
+static const char * const LAYOUT_FILE = nullptr;
 #elif defined(MIYOO) || defined(MIYOOA30)
-static const char * const LAYOUT_FILE = "MiyooMini";
+static const char * const LAYOUT_FILE = nullptr;
 #elif defined(BITTBOY)
-static const char * const LAYOUT_FILE = "Bittboy";
+static const char * const LAYOUT_FILE = nullptr;
 #elif defined(RG35XX22B)
 #pragma message "Using layout RG35XX22B"
 static const char * const LAYOUT_FILE = "RG35XX22B";
 #elif defined(RG35XX22)
 #pragma message "Using layout RG35XX22"
-static const char * const LAYOUT_FILE = "RG35XX22";
+static const char * const LAYOUT_FILE = nullptr;
 #elif defined(RG35XX)
 #pragma message "Using layout RG35XX"
-static const char * const LAYOUT_FILE = "RG35XX";
+static const char * const LAYOUT_FILE = nullptr;
 #else
 static const char * const LAYOUT_FILE = nullptr;
 #endif
@@ -155,7 +159,7 @@ class Mixer {
   int donePlayingRead;
   int donePlayingWrite;
 public:
-  inline Mixer(): audioTime { 0, 0, 0, 0 }, currentTimes(0), soundRead(0), soundWrite(0), donePlayingRead(0), donePlayingWrite(0) { }
+  inline Mixer(): audioTime { 0, 0, 0, 0 }, currentTimes(0), soundRead(0), soundWrite(0), donePlayingRead(0), donePlayingWrite(0), numChannelsUsed(0) { }
   void audioCallback(uint8_t *stream, int len);
   uint32_t playSound(const SoundBufferView *buffer);
   uint32_t playSoundAt(const SoundBufferView *buffer, uint32_t at);
@@ -597,39 +601,29 @@ void DinoJump::setDifficulty(int val) {
   difficulty = val;
 }
 
+Platform platform;
 
 void DinoJump::init() {
   if (screen) return;
 
   std::cerr << "1.." << std::endl;
-  SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK);
-
-  uint32_t flags = SDL_DOUBLEBUF | SDL_HWSURFACE;
-  std::cerr << "2.." << std::endl;
-#if BLOWUP
+  platform.setName("Dino Jump");
 #ifdef VERTICAL
-#ifdef MIYOOA30
-  realScreen = SDL_SetVideoMode(240 << BLOWUP, 320 << BLOWUP, 32, SDL_HWSURFACE | SDL_FULLSCREEN | SDL_DOUBLEBUF);
-  SDL_Flip(realScreen);
-#endif
-  realScreen = SDL_SetVideoMode(240 << BLOWUP, 320 << BLOWUP, 32, SDL_HWSURFACE | SDL_FULLSCREEN);
+  int rsw = 240;
+  int rsh = 320;
 #else
-  realScreen = SDL_SetVideoMode(320 << BLOWUP, 240 << BLOWUP, 32, 0);
-#endif
-  std::cerr << "2.1.." << std::endl;
-  screen = SDL_CreateRGBSurface(0, 320, 240, 32,
-      realScreen->format->Rmask, realScreen->format->Gmask, realScreen->format->Bmask,
-      realScreen->format->Amask);
-  std::cerr << "2.2.." << std::endl;
-#else
-#ifdef __EMSCRIPTEN__
-  uint32_t additionalFlags = 0;
-#else
-  uint32_t additionalFlags = SDL_DOUBLEBUF | SDL_HWSURFACE;
-#endif
-  screen = SDL_SetVideoMode(320, 240, 32, flags | additionalFlags);
+  int rsw = 320;
+  int rsh = 240;
 #endif
 
+#if BLOWUP || defined(VERTICAL)
+  realScreen = platform.initSDL(rsw << BLOWUP, rsh << BLOWUP);
+  screen = platform.createSurface(320, 240);
+#else
+  screen = platform.initSDL(rsw, rsh);
+#endif
+
+  std::cerr << "2.." << std::endl;
 
   std::cerr << "3.." << std::endl;
   memset(&controlState, 0, sizeof(controlState));
@@ -672,7 +666,6 @@ void DinoJump::init() {
     SDL_JoystickOpen(0);
   }
   std::cerr << "4.." << std::endl;
-  SDL_WM_SetCaption("Dino Jump", nullptr);
   SDL_ShowCursor(false);
   initAssets();
 }
@@ -704,17 +697,17 @@ void DinoJump::initAssets() {
   packFile.close();
   SlicedBuffer *bin = reinterpret_cast<SlicedBuffer*>(buf.asPointer());
   dino.appearance.color = randomBrightColor();
-  vita = bin->loadPNG("assets/vita.png");
+  vita = bin->loadImage("assets/vita.png");
   dino.appearance.surface = vita;
   dino.appearance.frameWidth = 24;
   dino.appearance.frameX = 4;
   dino.appearance.yOffset = 3;
   std::cerr << "5.." << std::endl;
-  bg = bin->loadPNG("assets/sky.png");
-  ground = bin->loadPNG("assets/ground.png");
-  blimp = bin->loadPNG("assets/blimp.png");
-  building = bin->loadPNG("assets/building.png");
-  shadow = bin->loadPNG("assets/shadow.png");
+  bg = bin->loadImage("assets/sky.png");
+  ground = bin->loadImage("assets/ground.png");
+  blimp = bin->loadImage("assets/blimp.png");
+  building = bin->loadImage("assets/building.png");
+  shadow = bin->loadImage("assets/shadow.png");
   std::cerr << "6.." << std::endl;
   const int widening = 2;
   wideShadow = SDL_CreateRGBSurface(0, shadow->w * widening, shadow-> h, 32,
@@ -746,11 +739,21 @@ void DinoJump::initAssets() {
   SDL_UnlockSurface(shadow);
   SDL_UnlockSurface(wideShadow);
 
-  SDL_SetAlpha(shadow, SDL_SRCALPHA, 255);
-  SDL_SetAlpha(wideShadow, SDL_SRCALPHA, 255);
+  platform.makeOpaque(shadow, false);
+  platform.makeOpaque(wideShadow, false);
 
   BufferView musicView = bin->lookup("assets/80sloop.fda");
-  compressedMusic.allocateAndCopy(musicView);
+  std::ifstream file("assets/music.fda", std::ios::binary);
+  if (file.is_open()) {
+    file.seekg(0, std::ios::end);
+    uint32_t size = file.tellg();
+    compressedMusic.allocate(size);
+    file.seekg(0, std::ios::beg);
+    file.read(reinterpret_cast<char*>(compressedMusic.buffer), size);
+    file.close();
+  } else {
+    compressedMusic.allocateAndCopy(musicView);
+  }
   music.reset(compressedMusic);
   music.startPlaying();
 }
@@ -774,21 +777,29 @@ void DinoJump::initAudio() {
     return;
   }
 #else
-  char log[256] { 0 };
-  SDL_AudioDriverName(log, sizeof(log));
-  std::cerr << "Audio driver: " << log << std::endl;
   std::cerr << "Opening audio device" << std::endl;
-  if (SDL_OpenAudio(&desiredAudioSpec, &actualAudioSpec)) {
-    std::cerr << "Failed to set up audio. Running without it." << std::endl;
-    audioInitialized = true;
+#ifdef USE_SDL2
+  SDL_AudioDeviceID deviceId = SDL_OpenAudioDevice(nullptr, 0, &desiredAudioSpec, &actualAudioSpec, 0);
+  if (!deviceId) {
+    std::cerr << "Failed to open audio device. Running without it. Error: " 
+              << SDL_GetError() << std::endl;
     return;
   }
+  std::cerr << "Device id: " << deviceId << std::endl;
+  SDL_PauseAudioDevice(deviceId, 0);
+#else
+  if (SDL_OpenAudio(&desiredAudioSpec, &actualAudioSpec)) {
+    std::cerr << "Failed to set up audio. Running without it. Error: "
+              << SDL_GetError() << std::endl;
+    return;
+  }
+  SDL_PauseAudio(0);
+#endif
   std::cerr << "Freq: " << actualAudioSpec.freq << std::endl;
   std::cerr << "Format: " << actualAudioSpec.format << std::endl;
   std::cerr << "Channels: " << static_cast<int>(actualAudioSpec.channels) << std::endl;
   std::cerr << "Samples: " << actualAudioSpec.samples << std::endl;
   std::cerr << "Starting audio" << std::endl;
-  SDL_PauseAudio(0);
 #endif
   std::cerr << "Audio initialized" << std::endl;
   audioInitialized = true;
@@ -862,8 +873,11 @@ void DinoJump::handleJoyButton(uint8_t button, uint8_t value) {
 }
 
 void DinoJump::handleKeyEvent(const SDL_Event &event) {
-  SDLKey key = event.key.keysym.sym;
-  Control control = inputLayout.mapKey(key);
+#ifdef USE_SDL2
+  Control control = inputLayout.mapKey(static_cast<int32_t>(event.key.keysym.scancode));
+#else
+  Control control = inputLayout.mapKey(static_cast<int32_t>(event.key.keysym.sym));
+#endif
   handleControlEvent(control, event.type == SDL_KEYDOWN);
 }
 
@@ -1194,9 +1208,9 @@ void DinoJump::render() {
 #endif
   SDL_UnlockSurface(realScreen);
   SDL_UnlockSurface(screen);
-  SDL_Flip(realScreen);
+  platform.present();
 #else
-  SDL_Flip(screen);
+  platform.present();
 #endif
 }
 

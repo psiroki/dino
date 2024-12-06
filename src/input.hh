@@ -1,8 +1,8 @@
 #pragma once
 
-#include <SDL/SDL.h>
 #include <stdint.h>
 
+#include "platform.hh"
 #include "util.hh"
 
 enum class Control {
@@ -33,8 +33,8 @@ public:
     table = reinterpret_cast<const KeyMapTable*>(tableBuffer);
   }
 
-  inline Control mapKey(SDLKey key) const {
-    return mapRaw(static_cast<int32_t>(key) | TYPE_KEY);
+  inline Control mapKey(int32_t key) const {
+    return mapRaw(key | TYPE_KEY);
   }
 
   inline Control mapButton(int button) const {

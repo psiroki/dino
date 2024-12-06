@@ -14,7 +14,7 @@ package: $(ZIP_PACKAGE)
 	@echo Project root: $(PROJECT_ROOT)
 	@echo Target path: $(BUILD_DIR)
 
-$(ZIP_PACKAGE): $(ASSETS)
+$(ZIP_PACKAGE): $(ASSETS) $(BUILD_DIR)/target/dino_jump
 	mkdir -p "$(BUILD_DIR)/Roms/PORTS/Games/DinoJump/assets"
 	mkdir -p "$(BUILD_DIR)/Roms/PORTS/Shortcuts/Action"
 	@echo Assets: $(ASSETS)

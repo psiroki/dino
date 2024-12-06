@@ -10,6 +10,9 @@ namespace fs = std::filesystem;
 
 #include "../src/input.hh"
 #include "../src/pack.hh"
+#include "../src/util.hh"
+
+#include "scancodes.hh"
 
 using namespace std;
 
@@ -43,17 +46,28 @@ const Control mappingOrder[] = {
 struct InputLayout {
   const char *layoutName;
   const KeyDef *keys;
-  const int numKeys;
+  int numKeys;
+  int merge;
 };
 
 #define HAT(k) { static_cast<int>(k | TYPE_HAT), "Hat" #k, -1 }
 #define BUTTON(k) { static_cast<int>(k | TYPE_BUTTON), "Button" #k, -1 }
+#define BUTTONO(k, o) { static_cast<int>(k | TYPE_BUTTON), "Button" #k, static_cast<int>(o) }
 #define KEY(k) { static_cast<int>(k), #k, -1 }
 #define KEYO(k, o) { static_cast<int>(k), #k, static_cast<int>(o) }
-#define LAYOUT(n, k) { .layoutName = n, .keys = k, .numKeys = sizeof(k) / sizeof(*k)  }
+#define LAYOUT(n, k) { .layoutName = n, .keys = k, .numKeys = sizeof(k) / sizeof(*k), .merge = 0 }
+#define MERGE(n, c) { .layoutName = n, .keys = nullptr, .numKeys = 0, .merge = c }
 
 // up, down, left, right, north, east, south, west, r1, l1, r2, l2, start, select, menu
 KeyDef pcLayout[] = { KEY(SDLK_UP), KEY(SDLK_DOWN), KEY(SDLK_LEFT), KEY(SDLK_RIGHT), KEY(SDLK_w), KEY(SDLK_d), KEY(SDLK_s), KEY(SDLK_a), KEY(SDLK_RSHIFT), KEY(SDLK_LSHIFT), KEY(SDLK_e), KEY(SDLK_q), KEY(SDLK_RETURN), KEY(SDLK_SPACE), KEY(SDLK_ESCAPE), };
+
+// up, down, left, right, north, east, south, west, r1, l1, r2, l2, start, select, menu
+KeyDef pcLayout2[] = {
+  KEY(SDL_SCANCODE_UP), KEY(SDL_SCANCODE_DOWN), KEY(SDL_SCANCODE_LEFT), KEY(SDL_SCANCODE_RIGHT),
+  KEY(SDL_SCANCODE_W), KEY(SDL_SCANCODE_D), KEY(SDL_SCANCODE_S), KEY(SDL_SCANCODE_A),
+  KEY(SDL_SCANCODE_RSHIFT), KEY(SDL_SCANCODE_LSHIFT), KEY(SDL_SCANCODE_E), KEY(SDL_SCANCODE_Q),
+  KEY(SDL_SCANCODE_RETURN), KEY(SDL_SCANCODE_SPACE), KEY(SDL_SCANCODE_ESCAPE),
+};
 
 // up, down, left, right,
 // north, east, south, west,
@@ -64,6 +78,17 @@ KeyDef miyooLayout[] = {
   KEY(SDLK_LSHIFT), KEY(SDLK_SPACE), KEY(SDLK_LCTRL), KEY(SDLK_LALT),
   KEY(SDLK_t), KEY(SDLK_e), KEY(SDLK_BACKSPACE), KEY(SDLK_TAB),
   KEY(SDLK_RETURN), KEY(SDLK_RCTRL), KEY(SDLK_ESCAPE),
+};
+
+// up, down, left, right,
+// north, east, south, west,
+// r1, l1, r2, l2,
+// start, select, menu
+KeyDef miyooLayout2[] = {
+  KEY(SDL_SCANCODE_UP), KEY(SDL_SCANCODE_DOWN), KEY(SDL_SCANCODE_LEFT), KEY(SDL_SCANCODE_RIGHT),
+  KEY(SDL_SCANCODE_LSHIFT), KEY(SDL_SCANCODE_SPACE), KEY(SDL_SCANCODE_LCTRL), KEY(SDL_SCANCODE_LALT),
+  KEY(SDL_SCANCODE_T), KEY(SDL_SCANCODE_E), KEY(SDL_SCANCODE_BACKSPACE), KEY(SDL_SCANCODE_TAB),
+  KEY(SDL_SCANCODE_RETURN), KEY(SDL_SCANCODE_RCTRL), KEY(SDL_SCANCODE_ESCAPE),
 };
 
 // up, down, left, right,
@@ -102,10 +127,12 @@ KeyDef rg35xx22bLayout[] = {
 
 const InputLayout layouts[] = {
   LAYOUT("PC", pcLayout),
+  LAYOUT("PC2", pcLayout2),
   LAYOUT("MiyooMini", miyooLayout),
+  LAYOUT("MiyooMini2", miyooLayout2),
   LAYOUT("Bittboy", bittboyLayout),
-  LAYOUT("RG35XX", rg35xxLayout),
   LAYOUT("RG35XX22", rg35xx22Layout),
+  LAYOUT("RG35XX", rg35xxLayout),
   LAYOUT("RG35XX22B", rg35xx22bLayout),
 };
 const int numLayouts = sizeof(layouts) / sizeof(*layouts);
@@ -117,8 +144,24 @@ void layoutKeys(const InputLayout &layout) {
   int32_t bestProbe = INT32_MAX;
   int bestTableSize = 0;
   KeyHasher bestHasher;
+
+  for (int i = 1; i < numKeys; ++i) {
+    for (int j = 0; j < i; ++j) {
+      if (layout.keys[i].code == layout.keys[j].code) {
+        cerr << "Key collision at index " << i << " and " << j << ": " << layout.keys[i].code << endl;
+        return;
+      }
+    }
+  }
+  
+  Timestamp wait;
   for (int tableSize = numKeys; tableSize <= maxSize; ++tableSize) {
-    for (int64_t i = 0; i < numKeys*numKeys*1024*numKeys*32; ++i) {
+    const int64_t numIter = static_cast<int64_t>(numKeys)*numKeys*1024*numKeys*32;
+    for (int64_t i = 0; i < numIter; ++i) {
+      if (!(i & 0xff) && wait.elapsedSeconds() > 5) {
+        wait.reset();
+        cerr << i * 100.0 / numIter << "%" << endl;
+      }
       int64_t r = i >> 4;
       int64_t rp = r / (numKeys << 3);
       int64_t layer = rp / (numKeys << 3);
@@ -241,8 +284,29 @@ void layoutKeys(const InputLayout &layout) {
 
 void layoutAll() {
   cout << "Generating layouts..." << endl;
+  KeyDef keys[256];
   for (int i = 0; i < numLayouts; ++i) {
-    layoutKeys(layouts[i]);
+    if (layouts[i].merge) {
+      InputLayout merged(layouts[i]);
+      int start = i - layouts[i].merge;
+      int keyCount = 0;
+      for (int j = start; j < i; ++j) {
+        const InputLayout &l(layouts[j]);
+        for (int k = 0; k < l.numKeys; ++k) {
+          KeyDef &key(keys[keyCount++]);
+          key = l.keys[k];
+          if (key.meaningIndexOverride < 0) {
+            // if it is not override, it's the index
+            key.meaningIndexOverride = k;
+          }
+        }
+      }
+      merged.keys = keys;
+      merged.numKeys = keyCount;
+      layoutKeys(merged);
+    } else {
+      layoutKeys(layouts[i]);
+    }
   }
 }
 
@@ -453,7 +517,6 @@ void packFiles(bool force) {
     files.push_back(assetFile);
   }
   KeyHasher hasher = packFiles(files);
-
 }
 
 int main(int argc, const char **argv) {

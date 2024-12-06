@@ -32,7 +32,7 @@ BufferView SlicedBuffer::lookup(const char *fn) {
   }
 }
 
-SDL_Surface* SlicedBuffer::loadPNG(const char *fn) {
+SDL_Surface* SlicedBuffer::loadImage(const char *fn) {
   BufferView view = lookup(fn);
-  return loadPNGFromMemory(view.buffer, view.sizeInBytes);
+  return loadImageFromMemory(view.buffer, view.sizeInBytes);
 }

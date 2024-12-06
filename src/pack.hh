@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 #include <string>
-#include <SDL/SDL.h>
+#include "platform.hh"
 
 #include "util.hh"
 
@@ -22,6 +22,11 @@ struct BufferView {
     buffer = new char[other.sizeInBytes];
     sizeInBytes = other.sizeInBytes;
     memcpy(buffer, other.buffer, sizeInBytes);
+  }
+
+  inline void allocate(uint32_t size) {
+    buffer = new char[size];
+    sizeInBytes = size;
   }
 
   inline void release() {
@@ -75,5 +80,5 @@ protected:
 
 public:
   BufferView lookup(const char *fn);
-  SDL_Surface* loadPNG(const char *fn);
+  SDL_Surface* loadImage(const char *fn);
 };

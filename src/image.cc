@@ -4,25 +4,27 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-static SDL_Surface* finishLoad(unsigned char *data, int width, int height, int channels);
+extern Platform platform;
 
-SDL_Surface* loadPNG(const char* filename) {
+static SDL_Surface* finishLoad(const char *fn, unsigned char *data, int width, int height, int channels);
+
+SDL_Surface* loadImage(const char* filename) {
     int width, height, channels;
     unsigned char *data = stbi_load(filename, &width, &height, &channels, STBI_rgb_alpha);
 
-    return finishLoad(data, width, height, channels);
+    return finishLoad(filename, data, width, height, channels);
 }
 
-SDL_Surface* loadPNGFromMemory(const void* contents, int size) {
+SDL_Surface* loadImageFromMemory(const void* contents, int size) {
     int width, height, channels;
     unsigned char *data = stbi_load_from_memory(reinterpret_cast<const unsigned char*>(contents), size, &width, &height, &channels, STBI_rgb_alpha);
 
-    return finishLoad(data, width, height, channels);
+    return finishLoad("<memory>", data, width, height, channels);
 }
 
-static SDL_Surface* finishLoad(unsigned char *data, int width, int height, int channels) {
+static SDL_Surface* finishLoad(const char *fn, unsigned char *data, int width, int height, int channels) {
     if (data == NULL) {
-        fprintf(stderr, "Failed to load image: %s\n", stbi_failure_reason());
+        fprintf(stderr, "Failed to load image: %s (%s)\n", stbi_failure_reason(), fn);
         return NULL;
     }
 
@@ -46,7 +48,7 @@ static SDL_Surface* finishLoad(unsigned char *data, int width, int height, int c
     }
 
     // Free the original data when the SDL_Surface is freed
-    SDL_Surface* optimizedSurface = SDL_DisplayFormatAlpha(surface);
+    SDL_Surface* optimizedSurface = platform.displayFormat(surface);
     SDL_FreeSurface(surface);
     stbi_image_free(data);
 
