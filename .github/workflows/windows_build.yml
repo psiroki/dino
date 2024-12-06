@@ -1,0 +1,69 @@
+name: Windows build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: ucrt64
+        install: >
+          mingw-w64-ucrt-x86_64-gcc
+          mingw-w64-ucrt-x86_64-cmake
+          mingw-w64-ucrt-x86_64-SDL2
+          mingw-w64-ucrt-x86_64-SDL2_ttf
+          mingw-w64-ucrt-x86_64-7zip
+        update: true
+
+    - name: Configure build with CMake and run build
+      shell: msys2 {0}
+      run: |
+        mkdir build
+        cd build
+        cmake -DUSE_SDL2=ON -DWIN_BUILD=ON ..
+        cmake --build .
+
+    - name: Collect required DLLs
+      shell: msys2 {0}
+      run: |
+        cp /ucrt64/bin/SDL2.dll build/ || true
+        cp /ucrt64/bin/SDL2_ttf.dll build/ || true
+        cp /ucrt64/bin/libbrotlicommon.dll build/ || true
+        cp /ucrt64/bin/libbrotlidec.dll build/ || true
+        cp /ucrt64/bin/libbz2-1.dll build/ || true
+        cp /ucrt64/bin/libfreetype-6.dll build/ || true
+        cp /ucrt64/bin/libgcc_s_seh-1.dll build/ || true
+        cp /ucrt64/bin/libglib-2.0-0.dll build/ || true
+        cp /ucrt64/bin/libgraphite2.dll build/ || true
+        cp /ucrt64/bin/libharfbuzz-0.dll build/ || true
+        cp /ucrt64/bin/libiconv-2.dll build/ || true
+        cp /ucrt64/bin/libintl-8.dll build/ || true
+        cp /ucrt64/bin/libpcre2-8-0.dll build/ || true
+        cp /ucrt64/bin/libpng16-16.dll build/ || true
+        cp /ucrt64/bin/libstdc++-6.dll build/ || true
+        cp /ucrt64/bin/libwinpthread-1.dll build/ || true
+        cp /ucrt64/bin/zlib1.dll build/ || true
+
+    - name: Copy assets
+      shell: msys2 {0}
+      run: |
+        mkdir -p build/assets
+        cp assets/assets.bin build/assets/ || true
+        cp build/target/dino_jump.exe build/ || true
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dino-jump-windows-${{ github.sha }}
+        path: |
+          build/*.exe
+          build/*.dll
+          build/assets/
