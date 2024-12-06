@@ -1221,7 +1221,7 @@ void mainLoop() {
 }
 
 #ifndef TEST
-int main() {
+int main(int argc, char **argv) {
   app.init();
 
 #ifdef __EMSCRIPTEN__
